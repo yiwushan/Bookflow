@@ -126,6 +126,12 @@ STARTUP_BOOTSTRAP_IMPORT_TIMEOUT_SEC = max(30, _env_int("BOOKFLOW_STARTUP_BOOTST
 STARTUP_BOOTSTRAP_WARM_COVER_TIMEOUT_SEC = max(20, _env_int("BOOKFLOW_STARTUP_BOOTSTRAP_WARM_COVER_TIMEOUT_SEC", 300))
 FEED_QUERY_TIMEOUT_MS = max(500, _env_int("BOOKFLOW_FEED_QUERY_TIMEOUT_MS", 8000))
 DB_CONNECT_TIMEOUT_SEC = max(1, _env_int("BOOKFLOW_DB_CONNECT_TIMEOUT_SEC", 5))
+DERIVED_CLEANUP_ENABLED = _env_bool("BOOKFLOW_DERIVED_CLEANUP_ENABLED", True)
+DERIVED_CLEANUP_INTERVAL_SEC = max(20, _env_int("BOOKFLOW_DERIVED_CLEANUP_INTERVAL_SEC", 180))
+DERIVED_CLEANUP_BATCH_SIZE = max(1, _env_int("BOOKFLOW_DERIVED_CLEANUP_BATCH_SIZE", 6))
+DERIVED_CLEANUP_MIN_AGE_SEC = max(0, _env_int("BOOKFLOW_DERIVED_CLEANUP_MIN_AGE_SEC", 30))
+DERIVED_CLEANUP_SCAN_FALLBACK = _env_bool("BOOKFLOW_DERIVED_CLEANUP_SCAN_FALLBACK", True)
+DERIVED_CLEANUP_SCAN_LIMIT = max(1, _env_int("BOOKFLOW_DERIVED_CLEANUP_SCAN_LIMIT", 24))
 STARTUP_BOOTSTRAP_LANGUAGE = str(os.getenv("BOOKFLOW_STARTUP_BOOTSTRAP_LANGUAGE", "zh") or "zh").strip() or "zh"
 STARTUP_BOOTSTRAP_BOOK_TYPE_STRATEGY = str(
     os.getenv("BOOKFLOW_STARTUP_BOOTSTRAP_BOOK_TYPE_STRATEGY", "auto") or "auto"
@@ -172,6 +178,26 @@ STARTUP_BOOTSTRAP_STATE: dict[str, Any] = {
     "last_run_finished_at": None,
     "last_error": "",
     "last_summary": {},
+}
+DERIVED_CLEANUP_LOCK = threading.Lock()
+DERIVED_CLEANUP_QUEUE: list[str] = []
+DERIVED_CLEANUP_QUEUE_SET: set[str] = set()
+DERIVED_CLEANUP_STATE: dict[str, Any] = {
+    "enabled": bool(DERIVED_CLEANUP_ENABLED),
+    "status": "idle",
+    "running": False,
+    "queued": 0,
+    "started_at": None,
+    "updated_at": None,
+    "last_run_started_at": None,
+    "last_run_finished_at": None,
+    "last_error": "",
+    "last_enqueue_reason": "",
+    "last_enqueued_book_id": "",
+    "total_runs": 0,
+    "total_books_cleaned": 0,
+    "total_files_deleted": 0,
+    "last_batch": {},
 }
 LLM_BATCH_JOBS_LOCK = threading.Lock()
 LLM_BATCH_JOBS: dict[str, dict[str, Any]] = {}
@@ -1118,6 +1144,14 @@ def _import_job_update(job_id: str, **patch: Any) -> None:
         job["updated_at"] = now_iso()
 
 
+def _find_running_import_job_id() -> str | None:
+    with IMPORT_JOBS_LOCK:
+        for jid, row in IMPORT_JOBS.items():
+            if str((row or {}).get("status") or "").strip().lower() == "running":
+                return str(jid)
+    return None
+
+
 def _run_import_job(job_id: str, *, cmd: list[str], env: dict[str, str], repo_root: Path) -> None:
     stderr_lines: list[str] = []
     stdout_text = ""
@@ -1186,12 +1220,18 @@ def _run_import_job(job_id: str, *, cmd: list[str], env: dict[str, str], repo_ro
             else:
                 final_status = "error"
 
+        cleanup_enqueued_count = 0
+        for book_id in _extract_success_book_ids_from_import_summary(summary):
+            if _schedule_derived_cleanup(book_id, reason="import_job"):
+                cleanup_enqueued_count += 1
+
         _import_job_update(
             job_id,
             status=final_status,
             return_code=return_code,
             summary=summary,
             failed_items=failed_items,
+            cleanup_enqueued_count=int(cleanup_enqueued_count),
             stderr_tail="\n".join(stderr_lines[-120:]),
             completed_at=now_iso(),
         )
@@ -1246,15 +1286,335 @@ def start_import_job(*, cmd: list[str], env: dict[str, str], repo_root: Path, me
     return dict(job_payload)
 
 
-def _startup_bootstrap_snapshot() -> dict[str, Any]:
+def _startup_bootstrap_snapshot(*, compact: bool = False) -> dict[str, Any]:
     with STARTUP_BOOTSTRAP_LOCK:
-        return dict(STARTUP_BOOTSTRAP_STATE)
+        snap = dict(STARTUP_BOOTSTRAP_STATE)
+    if not compact:
+        return snap
+
+    compact_snap = dict(snap)
+    last_summary = compact_snap.get("last_summary")
+    if isinstance(last_summary, dict):
+        compact_summary = dict(last_summary)
+        imp = compact_summary.get("import")
+        if isinstance(imp, dict):
+            imp_compact = dict(imp)
+            imp_compact["stderr_tail"] = str(imp.get("stderr_tail") or "")[-600:]
+            raw_summary = imp.get("summary")
+            if isinstance(raw_summary, dict):
+                raw_compact = dict(raw_summary)
+                rows = raw_summary.get("results") if isinstance(raw_summary.get("results"), list) else []
+                sample: list[dict[str, Any]] = []
+                for row in rows[:5]:
+                    if not isinstance(row, dict):
+                        continue
+                    sample.append(
+                        {
+                            "status": row.get("status"),
+                            "path": row.get("path"),
+                            "title": row.get("title"),
+                            "reason": row.get("reason"),
+                            "book_id": row.get("book_id"),
+                        }
+                    )
+                raw_compact["results_total"] = len(rows)
+                raw_compact["results_sample"] = sample
+                raw_compact.pop("results", None)
+                imp_compact["summary"] = raw_compact
+            compact_summary["import"] = imp_compact
+        compact_snap["last_summary"] = compact_summary
+    return compact_snap
 
 
 def _startup_bootstrap_update(**patch: Any) -> None:
     with STARTUP_BOOTSTRAP_LOCK:
         STARTUP_BOOTSTRAP_STATE.update(patch)
         STARTUP_BOOTSTRAP_STATE["updated_at"] = now_iso()
+
+
+def _resolve_derived_root_path() -> Path:
+    root = DEFAULT_DERIVED_ROOT
+    if not root.is_absolute():
+        root = (Path.cwd() / root).resolve()
+    else:
+        root = root.resolve()
+    return root
+
+
+def _extract_success_book_ids_from_import_summary(summary: Any) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    rows = summary.get("results") if isinstance(summary, dict) else []
+    for row in (rows if isinstance(rows, list) else []):
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "").strip().lower() != "ok":
+            continue
+        raw = str(row.get("book_id") or "").strip()
+        if not raw:
+            continue
+        try:
+            book_id = ensure_uuid(raw)
+        except Exception:
+            continue
+        if book_id in seen:
+            continue
+        seen.add(book_id)
+        out.append(book_id)
+    return out
+
+
+def _derived_cleanup_snapshot() -> dict[str, Any]:
+    with DERIVED_CLEANUP_LOCK:
+        snap = dict(DERIVED_CLEANUP_STATE)
+        snap["queued"] = len(DERIVED_CLEANUP_QUEUE)
+        return snap
+
+
+def _derived_cleanup_update(**patch: Any) -> None:
+    with DERIVED_CLEANUP_LOCK:
+        DERIVED_CLEANUP_STATE.update(patch)
+        DERIVED_CLEANUP_STATE["queued"] = len(DERIVED_CLEANUP_QUEUE)
+        DERIVED_CLEANUP_STATE["updated_at"] = now_iso()
+
+
+def _schedule_derived_cleanup(book_id: str, *, reason: str) -> bool:
+    if not DERIVED_CLEANUP_ENABLED:
+        return False
+    if STORE.backend != "postgres":
+        return False
+    try:
+        bid = ensure_uuid(book_id)
+    except Exception:
+        return False
+    with DERIVED_CLEANUP_LOCK:
+        if bid not in DERIVED_CLEANUP_QUEUE_SET:
+            DERIVED_CLEANUP_QUEUE.append(bid)
+            DERIVED_CLEANUP_QUEUE_SET.add(bid)
+        DERIVED_CLEANUP_STATE["last_enqueue_reason"] = str(reason or "")[:120]
+        DERIVED_CLEANUP_STATE["last_enqueued_book_id"] = bid
+        DERIVED_CLEANUP_STATE["queued"] = len(DERIVED_CLEANUP_QUEUE)
+        DERIVED_CLEANUP_STATE["updated_at"] = now_iso()
+    return True
+
+
+def _pop_derived_cleanup_batch(limit: int) -> list[str]:
+    out: list[str] = []
+    with DERIVED_CLEANUP_LOCK:
+        take = max(0, min(int(limit), len(DERIVED_CLEANUP_QUEUE)))
+        for _ in range(take):
+            book_id = DERIVED_CLEANUP_QUEUE.pop(0)
+            DERIVED_CLEANUP_QUEUE_SET.discard(book_id)
+            out.append(book_id)
+        DERIVED_CLEANUP_STATE["queued"] = len(DERIVED_CLEANUP_QUEUE)
+        DERIVED_CLEANUP_STATE["updated_at"] = now_iso()
+    return out
+
+
+def _scan_derived_book_ids(limit: int) -> list[str]:
+    root = _resolve_derived_root_path()
+    if not root.exists() or not root.is_dir():
+        return []
+    dirs: list[Path] = []
+    for p in root.iterdir():
+        if p.is_dir():
+            dirs.append(p)
+    dirs.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0.0, reverse=True)
+    out: list[str] = []
+    for p in dirs:
+        try:
+            out.append(ensure_uuid(p.name.strip()))
+        except Exception:
+            continue
+        if len(out) >= max(1, int(limit)):
+            break
+    return out
+
+
+def _fetch_expected_section_pdf_paths(book_id: str) -> set[Path]:
+    expected: set[Path] = set()
+    if STORE.backend != "postgres":
+        return expected
+    try:
+        bid = ensure_uuid(book_id)
+    except Exception:
+        return expected
+
+    derived_root = _resolve_derived_root_path()
+    try:
+        with STORE._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                      id::text AS chunk_id,
+                      COALESCE(NULLIF(metadata->>'section_pdf_relpath', ''), '') AS section_pdf_relpath
+                    FROM book_chunks
+                    WHERE book_id = %s::uuid
+                    """,
+                    (bid,),
+                )
+                rows = cur.fetchall()
+    except Exception:
+        return expected
+
+    for row in rows:
+        chunk_id = str(row.get("chunk_id") or "").strip()
+        rel = str(row.get("section_pdf_relpath") or "").strip()
+        if not rel:
+            rel = str((Path("data/books/derived") / bid / f"{chunk_id}.pdf").as_posix())
+        path = Path(rel)
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        else:
+            path = path.resolve()
+        if derived_root in path.parents:
+            expected.add(path)
+    return expected
+
+
+def _cleanup_derived_orphans_for_book(book_id: str) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "book_id": str(book_id),
+        "scanned": 0,
+        "expected_count": 0,
+        "deleted_count": 0,
+        "skipped_recent_count": 0,
+        "error_count": 0,
+        "errors": [],
+    }
+    try:
+        bid = ensure_uuid(book_id)
+    except Exception:
+        result["error_count"] = 1
+        result["errors"] = ["invalid_book_id"]
+        return result
+
+    root = _resolve_derived_root_path()
+    book_dir = (root / bid).resolve()
+    if not book_dir.exists() or not book_dir.is_dir():
+        return result
+
+    expected_paths = _fetch_expected_section_pdf_paths(bid)
+    result["expected_count"] = len(expected_paths)
+    now_ts = time.time()
+
+    for pdf_path in sorted(book_dir.glob("*.pdf")):
+        result["scanned"] = int(result["scanned"]) + 1
+        full = pdf_path.resolve()
+        if full in expected_paths:
+            continue
+        try:
+            age_sec = max(0.0, now_ts - float(pdf_path.stat().st_mtime))
+        except Exception:
+            age_sec = float(DERIVED_CLEANUP_MIN_AGE_SEC)
+        if age_sec < float(DERIVED_CLEANUP_MIN_AGE_SEC):
+            result["skipped_recent_count"] = int(result["skipped_recent_count"]) + 1
+            continue
+        try:
+            pdf_path.unlink(missing_ok=True)
+            result["deleted_count"] = int(result["deleted_count"]) + 1
+        except Exception as exc:
+            result["error_count"] = int(result["error_count"]) + 1
+            errs = result.get("errors") if isinstance(result.get("errors"), list) else []
+            if len(errs) < 20:
+                errs.append(f"{pdf_path.name}: {exc}")
+            result["errors"] = errs
+
+    try:
+        if not any(book_dir.iterdir()):
+            book_dir.rmdir()
+    except Exception:
+        pass
+    return result
+
+
+def run_derived_cleanup_once(*, trigger: str) -> dict[str, Any]:
+    if not DERIVED_CLEANUP_ENABLED or STORE.backend != "postgres":
+        _derived_cleanup_update(enabled=False, status="disabled", running=False)
+        return {"status": "disabled", "trigger": trigger, "book_count": 0, "deleted_count": 0}
+
+    _derived_cleanup_update(running=True, status="running", last_error="", last_run_started_at=now_iso())
+    batch = _pop_derived_cleanup_batch(DERIVED_CLEANUP_BATCH_SIZE)
+    if not batch and DERIVED_CLEANUP_SCAN_FALLBACK:
+        for book_id in _scan_derived_book_ids(DERIVED_CLEANUP_SCAN_LIMIT):
+            _schedule_derived_cleanup(book_id, reason="periodic_scan")
+        batch = _pop_derived_cleanup_batch(DERIVED_CLEANUP_BATCH_SIZE)
+
+    if not batch:
+        payload = {
+            "status": "idle",
+            "trigger": trigger,
+            "book_count": 0,
+            "deleted_count": 0,
+            "scanned_count": 0,
+            "error_count": 0,
+            "items": [],
+        }
+        _derived_cleanup_update(running=False, status="idle", last_run_finished_at=now_iso(), last_batch=payload)
+        return payload
+
+    items: list[dict[str, Any]] = []
+    total_deleted = 0
+    total_scanned = 0
+    total_errors = 0
+    for book_id in batch:
+        row = _cleanup_derived_orphans_for_book(book_id)
+        items.append(row)
+        total_deleted += int(row.get("deleted_count") or 0)
+        total_scanned += int(row.get("scanned") or 0)
+        total_errors += int(row.get("error_count") or 0)
+
+    with DERIVED_CLEANUP_LOCK:
+        DERIVED_CLEANUP_STATE["running"] = False
+        DERIVED_CLEANUP_STATE["status"] = "error" if total_errors > 0 else "idle"
+        DERIVED_CLEANUP_STATE["last_run_finished_at"] = now_iso()
+        DERIVED_CLEANUP_STATE["total_runs"] = int(DERIVED_CLEANUP_STATE.get("total_runs") or 0) + 1
+        DERIVED_CLEANUP_STATE["total_books_cleaned"] = int(DERIVED_CLEANUP_STATE.get("total_books_cleaned") or 0) + len(batch)
+        DERIVED_CLEANUP_STATE["total_files_deleted"] = int(DERIVED_CLEANUP_STATE.get("total_files_deleted") or 0) + total_deleted
+        DERIVED_CLEANUP_STATE["last_error"] = "" if total_errors <= 0 else f"batch_error_count={total_errors}"
+        DERIVED_CLEANUP_STATE["last_batch"] = {
+            "status": "error" if total_errors > 0 else "ok",
+            "trigger": str(trigger or ""),
+            "book_count": len(batch),
+            "deleted_count": int(total_deleted),
+            "scanned_count": int(total_scanned),
+            "error_count": int(total_errors),
+            "items": items[:10],
+        }
+        DERIVED_CLEANUP_STATE["queued"] = len(DERIVED_CLEANUP_QUEUE)
+        DERIVED_CLEANUP_STATE["updated_at"] = now_iso()
+    return dict(DERIVED_CLEANUP_STATE.get("last_batch") or {})
+
+
+def derived_cleanup_loop() -> None:
+    if not DERIVED_CLEANUP_ENABLED:
+        _derived_cleanup_update(enabled=False, status="disabled", running=False, started_at=now_iso())
+        return
+    _derived_cleanup_update(enabled=True, status="starting", running=False, started_at=now_iso())
+    while True:
+        try:
+            run_derived_cleanup_once(trigger="interval")
+        except Exception as exc:
+            _derived_cleanup_update(
+                running=False,
+                status="error",
+                last_error=str(exc)[:300],
+                last_run_finished_at=now_iso(),
+            )
+        time.sleep(max(20, int(DERIVED_CLEANUP_INTERVAL_SEC)))
+
+
+def start_derived_cleanup_thread() -> None:
+    if not DERIVED_CLEANUP_ENABLED:
+        _derived_cleanup_update(enabled=False, status="disabled", running=False, started_at=now_iso())
+        return
+    t = threading.Thread(
+        target=derived_cleanup_loop,
+        name="bookflow-derived-cleanup",
+        daemon=True,
+    )
+    t.start()
 
 
 def _list_bootstrap_supported_files(input_dir: Path, recursive: bool) -> list[Path]:
@@ -1388,6 +1748,12 @@ def _run_startup_import_cycle() -> dict[str, Any]:
         "summary": summary if isinstance(summary, dict) else {},
         "stderr_tail": "\n".join(stderr_text.splitlines()[-40:]),
     }
+
+    cleanup_enqueued_count = 0
+    for book_id in _extract_success_book_ids_from_import_summary(summary):
+        if _schedule_derived_cleanup(book_id, reason="startup_bootstrap"):
+            cleanup_enqueued_count += 1
+    result["cleanup_enqueued_count"] = int(cleanup_enqueued_count)
 
     if STARTUP_BOOTSTRAP_AUTO_APPROVE_IMPORTED:
         approved = 0
@@ -2851,6 +3217,7 @@ class BookFlowStore:
 
         out = dict(result)
         out["chunks_upserted"] = int(inserted)
+        out["cleanup_enqueued"] = bool(_schedule_derived_cleanup(book_id, reason=f"toc_materialize:{toc_source}"))
         return out
 
 
@@ -2897,8 +3264,10 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 {
                     "status": "ok",
                     "time": now_iso(),
+                    "trace_id": str(uuid.uuid4()),
                     "backend": STORE.backend,
-                    "startup_bootstrap": _startup_bootstrap_snapshot(),
+                    "startup_bootstrap": _startup_bootstrap_snapshot(compact=True),
+                    "derived_cleanup": _derived_cleanup_snapshot(),
                 },
             )
 
@@ -3376,6 +3745,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 "progress_total": progress_total,
                 "progress_percent": progress_percent,
                 "current_file": snapshot.get("current_file"),
+                "cleanup_enqueued_count": int(snapshot.get("cleanup_enqueued_count") or 0),
                 "summary": snapshot.get("summary") if isinstance(snapshot.get("summary"), dict) else {},
                 "failed_items": snapshot.get("failed_items") if isinstance(snapshot.get("failed_items"), list) else [],
                 "stderr_tail": str(snapshot.get("stderr_tail") or ""),
@@ -3387,6 +3757,14 @@ class BookFlowHandler(BaseHTTPRequestHandler):
     def handle_books_import_start(self) -> None:
         if not self._authorized(parsed=None):
             return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
+        running_job_id = _find_running_import_job_id()
+        if running_job_id:
+            return error_response(
+                self,
+                HTTPStatus.CONFLICT,
+                "IMPORT_ALREADY_RUNNING",
+                f"import job is already running: {running_job_id}",
+            )
 
         payload = self._read_json()
         if payload is None:
@@ -3485,6 +3863,14 @@ class BookFlowHandler(BaseHTTPRequestHandler):
     def handle_books_import(self) -> None:
         if not self._authorized(parsed=None):
             return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
+        running_job_id = _find_running_import_job_id()
+        if running_job_id:
+            return error_response(
+                self,
+                HTTPStatus.CONFLICT,
+                "IMPORT_ALREADY_RUNNING",
+                f"import job is already running: {running_job_id}",
+            )
 
         payload = self._read_json()
         if payload is None:
@@ -3588,6 +3974,11 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             "summary": summary,
             "stderr_tail": stderr_text[-2000:],
         }
+        cleanup_enqueued_count = 0
+        for book_id in _extract_success_book_ids_from_import_summary(summary):
+            if _schedule_derived_cleanup(book_id, reason="import_sync"):
+                cleanup_enqueued_count += 1
+        response_payload["cleanup_enqueued_count"] = int(cleanup_enqueued_count)
         failed_items: list[dict[str, Any]] = []
         if isinstance(summary.get("results"), list):
             for row in summary.get("results") or []:
@@ -4369,6 +4760,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         generated_pdf_count = 0
         failed_entries: list[dict[str, Any]] = []
         chunks_upserted = 0
+        cleanup_enqueued = False
 
         try:
             result = STORE.materialize_from_toc(book_id=book_id, entries=normalized, toc_source="manual_toc")
@@ -4376,6 +4768,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             generated_pdf_count = int(result.get("generated_pdf_count") or 0)
             failed_entries = list(result.get("failed_entries") or [])
             chunks_upserted = int(result.get("chunks_upserted") or materialized_chunks)
+            cleanup_enqueued = bool(result.get("cleanup_enqueued"))
             warnings.extend([str(x) for x in (result.get("warnings") or [])])
         except Exception as exc:
             warnings.append(f"materialization_failed: {exc}")
@@ -4399,6 +4792,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 "materialized_chunks": materialized_chunks,
                 "generated_pdf_count": generated_pdf_count,
                 "chunks_upserted": chunks_upserted,
+                "cleanup_enqueued": cleanup_enqueued,
                 "failed_entries": failed_entries,
                 "warnings": warnings,
                 "toc_review_status": "pending_review",
@@ -5510,6 +5904,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
 def run_server(host: str, port: int) -> None:
     server = ThreadingHTTPServer((host, port), BookFlowHandler)
     start_startup_bootstrap_thread()
+    start_derived_cleanup_thread()
     print(f"BookFlow V0 server listening on http://{host}:{port}")
     print("Token:", TOKEN)
     print("Backend:", STORE.backend)
@@ -5520,6 +5915,13 @@ def run_server(host: str, port: int) -> None:
         )
     else:
         print("Startup bootstrap: disabled")
+    if DERIVED_CLEANUP_ENABLED:
+        print(
+            "Derived cleanup queue: enabled",
+            f"(interval={DERIVED_CLEANUP_INTERVAL_SEC}s, batch={DERIVED_CLEANUP_BATCH_SIZE}, min_age={DERIVED_CLEANUP_MIN_AGE_SEC}s, storage={PDF_SECTION_STORAGE_MODE})",
+        )
+    else:
+        print("Derived cleanup queue: disabled")
     server.serve_forever()
 
 

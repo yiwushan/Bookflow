@@ -44,6 +44,10 @@ python3 server/app.py --host 127.0.0.1 --port 8000
 4. `BOOKFLOW_STARTUP_BOOTSTRAP_SKIP_EXISTING=1`
 5. `BOOKFLOW_STARTUP_BOOTSTRAP_WARM_COVER_LIMIT=24`
 6. `BOOKFLOW_STARTUP_BOOTSTRAP_AUTO_APPROVE_IMPORTED=0`（设为 `1` 可导入后自动审核通过）
+7. `BOOKFLOW_DERIVED_CLEANUP_ENABLED=1`（开启闲时清理废弃章节 PDF）
+8. `BOOKFLOW_DERIVED_CLEANUP_INTERVAL_SEC=180`
+9. `BOOKFLOW_DERIVED_CLEANUP_BATCH_SIZE=6`
+10. `BOOKFLOW_DERIVED_CLEANUP_MIN_AGE_SEC=30`
 
 打开：
 1. `http://127.0.0.1:8000/app`（Feed）
@@ -79,7 +83,7 @@ python3 scripts/import_library.py \
 - API 请求头：`Authorization: Bearer <token>`
 
 ## 关键 API
-1. `GET /health`（包含 `startup_bootstrap` 状态）
+1. `GET /health`（包含 `startup_bootstrap` 与 `derived_cleanup` 状态）
 2. `GET /v1/feed`
 3. `GET /v1/books`
 4. `POST /v1/books/import_start`（异步导入，返回 `job_id`）
@@ -114,6 +118,7 @@ LLM 识别结果会落盘到：`data/toc/llm_runs/*.json`（接口返回 `saved_
 
 ## 章节 PDF 产物目录
 - `data/books/derived/<book_id>/<chunk_id>.pdf`
+- 当目录重做/重新物化后，后台闲时队列会自动清理不再被引用的旧章节 PDF。
 
 ## 缓存与用户导出目录
 1. 封面缓存（独立于用户数据）：`data/cache/covers`
