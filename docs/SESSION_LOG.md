@@ -1,0 +1,4287 @@
+# BookFlow 交接日志
+
+## 2026-03-31 / Session-153
+- 负责人：AI 协作代理
+- 类型：里程碑（NOW-501）
+- 完成：
+  - 执行真实链路验收：两本上传 PDF 完成导入，库内可见。
+  - 发现并修复导入阻塞：`scripts/import_book.py` 补回 `_safe_int`（导入恢复）。
+  - 发现并修复 Feed 500：`server/app.py` 中 SQL `%` 占位冲突改为 `%%`。
+  - 技术书（`01e4148f-7768-4b43-81d5-acf24bbc02e3`）完成手工 TOC 保存并物化 3 个章节 PDF。
+  - Reader/Context/PDF 下载/互动/拼图进度全链路验证通过：`section_complete` 后完成率 `0.0 -> 0.3333`。
+- 关键结果：
+  - 导入结果：`success_count=2, failure_count=0`。
+  - 技术书章节 PDF：`materialized_chunks=3, generated_pdf_count=3`。
+  - `chunk_pdf` 验证：HTTP 200，样例章节文件大小约 `5,041,974` 字节。
+- 下一步：
+  - 推进 `NOW-503`（产出 v0 验收说明）和 `NOW-504`（细化技术书目录粒度）。
+
+## 2026-03-31 / Session-152
+- 负责人：AI 协作代理
+- 类型：里程碑
+- 完成：
+  - 按“抛弃历史复杂路径”的目标，重建 `server/app.py` 为 V0 专用主链路后端。
+  - 保留并打通核心 API：`feed/chunk_detail/chunk_context/chunk_pdf/book_mosaic/interactions/toc_pending/toc_preview/toc_save`。
+  - 前端维持四页简洁版（`/app`、`/app/reader`、`/app/book`、`/app/toc`），直接对接新后端。
+  - 文档重写为 V0 口径：`README.md`、`docs/STATE.json`、`docs/TASK_BOARD.md`。
+- 验证：
+  - `python3 -m py_compile server/app.py` 通过。
+  - `./scripts/smoke_first_product.sh --base-url http://127.0.0.1:8023 --token local-dev-token` 通过。
+  - 互动接口 sanity：`POST /v1/interactions` 返回 `accepted=1,rejected=0`。
+- 下一步：
+  - 进入 `NOW-501`：用真实 PDF 跑完整导入-标注-阅读验收并修问题。
+
+## 2026-03-30 / Session-151
+- 负责人：AI 协作代理
+- 类型：里程碑
+- 完成：
+  - 重建前端四页：`/app`、`/app/reader`、`/app/book`、`/app/toc`，去除调试/实验配置项，保留阅读主链路。
+  - 重建样式系统，统一双列卡片、章节阅读、拼图进度、目录预览表格视觉与交互。
+  - 后端新增 `compact=1` 轻量响应（`feed/chunk_context/chunk_detail/book_mosaic/toc_pending/toc_annotation`），默认仍兼容旧返回。
+  - Reader 侧补充离开页 `impression` 上报与重复上报保护。
+- 验证：
+  - `python3 -m py_compile server/app.py` 通过。
+  - `./scripts/smoke_first_product.sh --base-url http://127.0.0.1:8019 --token local-dev-token` 通过。
+  - `python3 -m unittest tests.test_api_contract.ApiContractTests.test_feed_success_contract tests.test_api_contract.ApiContractTests.test_chunk_detail_contract tests.test_api_contract.ApiContractTests.test_book_mosaic_contract` 通过。
+- 下一步：
+  - 执行 `NOW-460/461/462`：用两本真实 PDF 跑全链路验收，补空态引导，补 compact 回归测试。
+
+## 2026-03-30 / Session-150
+- 负责人：AI 协作代理
+- 类型：里程碑
+- 完成：
+  - 发布 `v0.1.0`：目录驱动章节 PDF 物化 + 原文阅读主链路打通。
+  - 新增 `scripts/pdf_sectioning.py`，统一目录归一化、叶子小节筛选、章节 PDF 预切、DB 物化写入。
+  - 重构 `scripts/import_book.py`：`outline>manual_toc>pending_manual_toc`，导入即物化（或入待处理队列）。
+  - 升级 `POST /v1/toc/save` 为“保存并物化”，并回包 `materialized_chunks/generated_pdf_count/failed_entries/warnings`。
+  - 新增 `GET /v1/chunk_pdf`，`GET /v1/chunk_detail` 增加 `content_type/section_pdf_url/page_start/page_end`。
+  - `GET /v1/toc/pending` 增加 `needs_manual_toc/toc_source/materialization_status/materialized_chunk_count`。
+  - Feed 默认排序改为“未完成优先 + 跨书交错 + 轻随机”；Book 拼图完成口径改为 `section_complete`。
+  - Reader 接入 `pdf_section` 渲染（章节 PDF iframe）。
+- 验证：
+  - `python3 -m py_compile server/app.py server/repository.py scripts/import_book.py scripts/pdf_sectioning.py` 通过。
+  - `python3 -m unittest tests.test_pdf_sectioning tests.test_api_contract` 通过。
+  - `./scripts/smoke_first_product.sh --base-url http://127.0.0.1:8012 --token local-dev-token` 通过。
+- 下一步：
+  - 执行 `NOW-450/451/452`，重点做 Reader 工具栏、TOC 错误区间修正提示、真实 PDF 端到端回归。
+
+
+## 2026-03-30 / Session-149
+- 负责人：AI 协作代理
+- 类型：里程碑
+- 完成：
+  - 落地开发流程瘦身：`快速门禁 + 轻量记录`。
+  - 重写 `START_HERE` 为精简流程（NOW -> 开发 -> 快速验证 -> 最小记录）。
+  - 收缩 `STATE.must_read` 到核心入口文件。
+  - 重构 `TASK_BOARD`（主板仅保留 NOW/NEXT/LATER + 最近 20 条 DONE），并将完整历史归档到 `docs/archive/task_board_full_history_2026-03-30.md`。
+  - 重写 `README` 为 V0 主路径，复杂调试与历史实验迁移到 `docs/archive/advanced.md`。
+- 验证：
+  - 文档一致性检查：`README / START_HERE / STATE / TASK_BOARD` 术语对齐。
+  - 快速门禁验证：运行 smoke 脚本（环境依赖可用时）。
+- 下一步：
+  - 继续执行 `NOW-444/445/446`，按轻量流程推进。
+
+## 2026-03-30 / Session-148
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-439`：首页 Feed 从单卡片切换为双列瀑布流卡片（上封面下标题），并保留点赞/评论/进入阅读。
+  - 完成 `DONE-440`：新增 `frontend/toc.html`（人工目录标注台，支持批量粘贴目录、预览定位、保存目录）。
+  - 完成 `DONE-441`：后端新增 TOC API：`GET /v1/toc/pending`、`GET /v1/toc/annotation`、`POST /v1/toc/preview`、`POST /v1/toc/save`。
+  - 完成 `DONE-442`：手工目录标注持久化到 `data/toc/manual_annotations.json`，并回写 `books.metadata.manual_toc*`；新增 `docs/specs/v0_scope.md` 固化 Deferred 清单。
+  - 完成 `DONE-443`：Feed 增加按 `book_title/book_id` 的本地过滤控件，并同步 URL 与 localStorage。
+  - 已清理联调示例目录数据，恢复 `books.total_sections` 与 `manual_toc` 相关字段，避免污染真实书籍数据。
+  - 同步更新 `README/frontend README/TASK_BOARD/STATE/DECISIONS`。
+- 验证：
+  - `python3 -m py_compile server/app.py server/repository.py server/service.py` 通过。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（192/192）。
+  - 真实 API 验证通过：
+    - `GET /v1/toc/pending`
+    - `POST /v1/toc/preview`
+    - `POST /v1/toc/save`
+    - `GET /v1/toc/annotation`
+  - 页面连通性通过：`/app`、`/app/toc` 返回 200，`smoke_first_product.sh` 通过。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/styles.css`
+  - `frontend/toc.html`
+  - `frontend/README.md`
+  - `server/app.py`
+  - `server/README.md`
+  - `README.md`
+  - `docs/FIRST_PRODUCT.md`
+  - `docs/specs/v0_scope.md`
+  - `docs/specs/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 目录标注台“重叠区间/倒序页码”高亮修正提示。
+  - `docs/ops/first_product_recovery.md`。
+  - `first_product.sh --accept-e2e` 开关。
+- 下一位接手第一步：
+  - 执行 `NOW-444`，先在目录标注台补“重叠区间/倒序页码”高亮提示与快速修正建议。
+
+## 2026-03-30 / Session-147
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-433`：新增 `scripts/import_library.py`，支持目录批量导入、自动书籍类型推断、失败汇总输出。
+  - 完成 `DONE-434`：新增 `scripts/first_product.sh`，打通“一键启动 Postgres + 批量导入 + 启服”路径。
+  - 完成 `DONE-435`：新增 `docs/FIRST_PRODUCT.md`，并在 `README.md` 增加 First Product Fast Path。
+  - 完成 `DONE-436`：修复 PDF 导入 `NUL (0x00)` 导致 Postgres 写入失败问题（`scripts/import_book.py::normalize_text`）。
+  - 完成 `DONE-437`：新增 `tests/test_import_library.py`，并补充 `tests/test_import_book.py` 的 NUL 清洗回归用例。
+  - 完成 `DONE-438`：新增 `scripts/smoke_first_product.sh`，固化首成品 health/feed/frontend 三入口 smoke 验收。
+  - 使用你上传的两本 PDF 完成真实导入验证（`success_count=2`，技术书 `843` chunks，通识书 `67` chunks）。
+  - 同步更新看板/状态/决策日志，`NOW` 推进为 `NOW-439/440/441`。
+- 验证：
+  - `python3 scripts/import_library.py --input-dir data/books/inbox --dry-run --book-type-strategy auto` 通过（2/2）。
+  - `./scripts/first_product.sh --skip-db-bootstrap --dry-run-import --no-server --import-limit 1` 通过。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（192/192）。
+  - `./scripts/first_product.sh --no-server --input-dir data/books/inbox` 通过（真实写库 2/2）。
+  - 启服后 `GET /health` 返回 `backend=postgres`，`GET /v1/feed` 返回已导入书籍切片。
+  - `./scripts/smoke_first_product.sh --base-url http://127.0.0.1:8000 --token local-dev-token` 通过。
+- 变更文件：
+  - `scripts/import_library.py`
+  - `scripts/first_product.sh`
+  - `scripts/smoke_first_product.sh`
+  - `scripts/import_book.py`
+  - `tests/test_import_library.py`
+  - `tests/test_import_book.py`
+  - `docs/FIRST_PRODUCT.md`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 前端书籍过滤最小控件
+  - `docs/ops/first_product_recovery.md`
+  - `first_product.sh --accept-e2e` 开关
+- 下一位接手第一步：
+  - 执行 `NOW-439`，先在 Feed 页面补最小书籍切换/过滤控件用于首成品体验验证。
+
+## 2026-03-30 / Session-146
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-427`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 回显。
+  - 完成 `DONE-428`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source`。
+  - 完成 `DONE-429`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+  - 完成 `DONE-430`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 回显。
+  - 完成 `DONE-431`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version`。
+  - 完成 `DONE-432`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-433/434/435`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-433`，先为 Feed 新增深层来源说明模板字段的 source note template source note 回显。
+
+## 2026-03-30 / Session-145
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-421`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 回显。
+  - 完成 `DONE-422`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template`。
+  - 完成 `DONE-423`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+  - 完成 `DONE-424`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 回显。
+  - 完成 `DONE-425`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version`。
+  - 完成 `DONE-426`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-427/428/429`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source。
+- 下一位接手第一步：
+  - 执行 `NOW-427`，先为 Feed 新增深层来源说明模板字段的 source note template source 回显。
+
+## 2026-03-30 / Session-144
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-415`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 回显。
+  - 完成 `DONE-416`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note`。
+  - 完成 `DONE-417`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 并补单测。
+  - 完成 `DONE-418`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 回显。
+  - 完成 `DONE-419`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version`。
+  - 完成 `DONE-420`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-421/422/423`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template。
+- 下一位接手第一步：
+  - 执行 `NOW-421`，先为 Feed 新增深层来源说明模板字段的 source note template 回显。
+
+## 2026-03-30 / Session-143
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-412`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 回显。
+  - 完成 `DONE-413`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version`。
+  - 完成 `DONE-414`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-415/416/417`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-415`，先为 Feed 新增深层来源说明模板字段的 template source note 回显。
+
+## 2026-03-30 / Session-142
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-409`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 回显。
+  - 完成 `DONE-410`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source`。
+  - 完成 `DONE-411`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-412/413/414`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version。
+- 下一位接手第一步：
+  - 执行 `NOW-412`，先为 Feed 新增深层来源说明模板字段的 template source 版本号回显。
+
+## 2026-03-30 / Session-141
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-406`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 回显。
+  - 完成 `DONE-407`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version`。
+  - 完成 `DONE-408`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-409/410/411`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板来源字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source。
+- 下一位接手第一步：
+  - 执行 `NOW-409`，先为 Feed 新增深层来源说明模板字段的 template source 回显。
+
+## 2026-03-30 / Session-140
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-400`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 回显。
+  - 完成 `DONE-401`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version`。
+  - 完成 `DONE-402`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+  - 完成 `DONE-403`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 回显。
+  - 完成 `DONE-404`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template`。
+  - 完成 `DONE-405`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-406/407/408`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明模板版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version。
+- 下一位接手第一步：
+  - 执行 `NOW-406`，先为 Feed 新增深层来源说明模板字段的 template 版本号回显。
+
+## 2026-03-30 / Session-139
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-397`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 回显。
+  - 完成 `DONE-398`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note`。
+  - 完成 `DONE-399`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-400/401/402`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version。
+- 下一位接手第一步：
+  - 执行 `NOW-400`，先为 Feed 新增深层来源说明模板字段的 source note 版本号回显。
+
+## 2026-03-30 / Session-138
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-394`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 回显。
+  - 完成 `DONE-395`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version`。
+  - 完成 `DONE-396`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-397/398/399`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源说明字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-397`，先为 Feed 新增深层来源说明模板字段的 source note 回显。
+
+## 2026-03-30 / Session-137
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-391`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 回显。
+  - 完成 `DONE-392`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source`。
+  - 完成 `DONE-393`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-394/395/396`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version。
+- 下一位接手第一步：
+  - 执行 `NOW-394`，先为 Feed 新增深层来源说明模板字段的 source 版本号回显。
+
+## 2026-03-30 / Session-136
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-388`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 回显。
+  - 完成 `DONE-389`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_version`。
+  - 完成 `DONE-390`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-391/392/393`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板来源字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source。
+- 下一位接手第一步：
+  - 执行 `NOW-391`，先为 Feed 新增深层来源说明模板字段的 source 回显。
+
+## 2026-03-30 / Session-135
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-385`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template` 回显。
+  - 完成 `DONE-386`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template`。
+  - 完成 `DONE-387`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-388/389/390`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_version。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version。
+- 下一位接手第一步：
+  - 执行 `NOW-388`，先为 Feed 新增深层来源说明模板字段的版本号回显。
+
+## 2026-03-30 / Session-134
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-382`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_version` 回显。
+  - 完成 `DONE-383`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_version`。
+  - 完成 `DONE-384`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-385/386/387`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明模板字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template。
+- 下一位接手第一步：
+  - 执行 `NOW-385`，先为 Feed 增加深层来源说明字段的 template 回显。
+
+## 2026-03-30 / Session-133
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-379`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note` 回显。
+  - 完成 `DONE-380`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note`。
+  - 完成 `DONE-381`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note` 并补单测。
+  - 同步更新看板/状态/会话日志，`NOW` 推进为 `NOW-382/383/384`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_version。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源说明版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_version。
+- 下一位接手第一步：
+  - 执行 `NOW-382`，先为 Feed 新增深层来源说明字段的版本号回显。
+
+## 2026-03-30 / Session-132
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-355`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template` 回显。
+  - 完成 `DONE-356`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template`。
+  - 完成 `DONE-357`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+  - 完成 `DONE-358`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_version` 回显。
+  - 完成 `DONE-359`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_version`。
+  - 完成 `DONE-360`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-361/362/363`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板来源字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-361`，先为 Feed 来源说明模板来源说明模板来源说明模板补 source 字段。
+
+## 2026-03-30 / Session-131
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-349`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note` 回显。
+  - 完成 `DONE-350`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note`。
+  - 完成 `DONE-351`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+  - 完成 `DONE-352`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_version` 回显。
+  - 完成 `DONE-353`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_version`。
+  - 完成 `DONE-354`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-355/356/357`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明模板字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source。
+- 下一位接手第一步：
+  - 执行 `NOW-355`，先为 Feed 来源说明模板来源说明模板来源说明补 template 字段。
+
+## 2026-03-30 / Session-130
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-343`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source` 回显。
+  - 完成 `DONE-344`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source`。
+  - 完成 `DONE-345`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note` 并补单测。
+  - 完成 `DONE-346`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_version` 回显。
+  - 完成 `DONE-347`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_version`。
+  - 完成 `DONE-348`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-349/350/351`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源说明字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template。
+- 下一位接手第一步：
+  - 执行 `NOW-349`，先为 Feed 来源说明模板来源说明模板来源补 note 字段。
+
+## 2026-03-30 / Session-129
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-337`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template` 回显。
+  - 完成 `DONE-338`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template`。
+  - 完成 `DONE-339`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source` 并补单测。
+  - 完成 `DONE-340`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_template_version` 回显。
+  - 完成 `DONE-341`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_version`。
+  - 完成 `DONE-342`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-343/344/345`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template_source。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板来源字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-343`，先为 Feed 来源说明模板来源说明模板补 source 字段。
+
+## 2026-03-29 / Session-128
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-331`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note` 回显。
+  - 完成 `DONE-332`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note`。
+  - 完成 `DONE-333`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source` 并补单测。
+  - 完成 `DONE-334`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_note_version` 回显。
+  - 完成 `DONE-335`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_version`。
+  - 完成 `DONE-336`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-337/338/339`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note_template。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明模板字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-337`，先为 Feed 来源说明模板来源说明补 template 字段。
+
+## 2026-03-29 / Session-127
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-328`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source_version` 回显。
+  - 完成 `DONE-329`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_version`。
+  - 完成 `DONE-330`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-331/332/333`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_note。
+  - Reader schema_fields_json 摘要模板来源说明模板来源说明字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_source。
+- 下一位接手第一步：
+  - 执行 `NOW-331`，先为 Feed 来源说明模板来源补 note 字段。
+
+## 2026-03-29 / Session-126
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-325`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_source` 回显。
+  - 完成 `DONE-326`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source`。
+  - 完成 `DONE-327`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-328/329/330`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source_version。
+  - Reader schema_fields_json 摘要模板来源说明模板来源版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template_version。
+- 下一位接手第一步：
+  - 执行 `NOW-328`，先为 Feed 来源说明模板来源补 version 字段。
+
+## 2026-03-29 / Session-125
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-322`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template_version` 回显。
+  - 完成 `DONE-323`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_version`。
+  - 完成 `DONE-324`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-325/326/327`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_source。
+  - Reader schema_fields_json 摘要模板来源说明模板来源字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_template。
+- 下一位接手第一步：
+  - 执行 `NOW-325`，先为 Feed 来源说明模板补 source 字段。
+
+## 2026-03-29 / Session-124
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-319`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_template` 回显。
+  - 完成 `DONE-320`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template`。
+  - 完成 `DONE-321`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-322/323/324`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template_version。
+  - Reader schema_fields_json 摘要模板来源说明模板版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note_version。
+- 下一位接手第一步：
+  - 执行 `NOW-322`，先为 Feed 模板来源说明模板补 version 字段。
+
+## 2026-03-29 / Session-123
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-316`：Feed 新增 `compiled_pattern_flags_effective_template_source_note_version` 回显。
+  - 完成 `DONE-317`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_version`。
+  - 完成 `DONE-318`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-319/320/321`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_template。
+  - Reader schema_fields_json 摘要模板来源说明模板字段。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-319`，先为 Feed 模板来源说明补 template 字段。
+
+## 2026-03-29 / Session-122
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-310`：Feed 新增 `compiled_pattern_flags_effective_template_source_version` 回显。
+  - 完成 `DONE-311`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_version`。
+  - 完成 `DONE-312`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_version` 并补单测。
+  - 完成 `DONE-313`：Feed 新增 `compiled_pattern_flags_effective_template_source_note` 回显。
+  - 完成 `DONE-314`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note`。
+  - 完成 `DONE-315`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-316/317/318`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_note_version。
+  - Reader schema_fields_json 摘要模板来源说明版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_source_version。
+- 下一位接手第一步：
+  - 执行 `NOW-316`，先为 Feed 模板来源说明补 version 字段。
+
+## 2026-03-29 / Session-121
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-307`：Feed 新增 `compiled_pattern_flags_effective_template_source` 回显。
+  - 完成 `DONE-308`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source`。
+  - 完成 `DONE-309`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-310/311/312`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source_version。
+  - Reader schema_fields_json 摘要模板来源版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_template_version。
+- 下一位接手第一步：
+  - 执行 `NOW-310`，先给 Feed effective flags 模板来源补 version 字段。
+
+## 2026-03-29 / Session-120
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-304`：Feed 新增 `compiled_pattern_flags_effective_template_version` 回显。
+  - 完成 `DONE-305`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_version`。
+  - 完成 `DONE-306`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-307/308/309`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_source。
+  - Reader schema_fields_json 摘要模板来源标记。
+  - EPUB coverage_ratio_precision_note_template_source_note_template。
+- 下一位接手第一步：
+  - 执行 `NOW-307`，先为 Feed effective flags 模板增加 source 字段。
+
+## 2026-03-29 / Session-119
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-301`：Feed 新增 `compiled_pattern_flags_effective_template` 回显。
+  - 完成 `DONE-302`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template`。
+  - 完成 `DONE-303`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-304/305/306`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template_version。
+  - Reader schema_fields_json 摘要模板版本号。
+  - EPUB coverage_ratio_precision_note_template_source_note_version。
+- 下一位接手第一步：
+  - 执行 `NOW-304`，先为 Feed effective flags 模板增加版本字段。
+
+## 2026-03-29 / Session-118
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-298`：Feed 新增 `compiled_pattern_flags_effective_version` 回显。
+  - 完成 `DONE-299`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_version`。
+  - 完成 `DONE-300`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-301/302/303`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_template。
+  - Reader schema_fields_json 摘要模板。
+  - EPUB coverage_ratio_precision_note_template_source_note。
+- 下一位接手第一步：
+  - 执行 `NOW-301`，先在 Feed 预览中加入 effective flags 模板字段。
+
+## 2026-03-29 / Session-117
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-295`：Feed 新增 `compiled_pattern_flags_effective_note` 回显。
+  - 完成 `DONE-296`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_source`。
+  - 完成 `DONE-297`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-298/299/300`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_version。
+  - Reader schema_fields_json 摘要版本号。
+  - EPUB coverage_ratio_precision_note_template_source_version。
+- 下一位接手第一步：
+  - 执行 `NOW-298`，先在 Feed 预览里补 effective flags 的版本字段。
+
+## 2026-03-29 / Session-116
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-292`：Feed 新增 `compiled_pattern_flags_effective_source` 回显。
+  - 完成 `DONE-293`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_length`。
+  - 完成 `DONE-294`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-295/296/297`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_note。
+  - Reader schema_fields_json 摘要来源标记。
+  - EPUB coverage_ratio_precision_note_template_source。
+- 下一位接手第一步：
+  - 执行 `NOW-295`，先在 Feed 预览里补 `compiled_pattern_flags_effective_note`。
+
+## 2026-03-29 / Session-115
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-289`：Feed 新增 `compiled_pattern_flags_effective` 回显。
+  - 完成 `DONE-290`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary`。
+  - 完成 `DONE-291`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-292/293/294`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective_source。
+  - Reader schema_fields_json 摘要长度回显。
+  - EPUB coverage_ratio_precision_note_template_version。
+- 下一位接手第一步：
+  - 执行 `NOW-292`，先在 Feed 预览中增加 effective flags 的来源字段。
+
+## 2026-03-29 / Session-114
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-286`：Feed 新增 `compiled_pattern_length` 回显。
+  - 完成 `DONE-287`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_hash_length`。
+  - 完成 `DONE-288`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_source_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-289/290/291`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_flags_effective。
+  - Reader schema_fields_json 缩略摘要。
+  - EPUB coverage_ratio_precision_note_template。
+- 下一位接手第一步：
+  - 执行 `NOW-289`，先在 Feed 预览中回显 effective flags 字段。
+
+## 2026-03-29 / Session-113
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-283`：Feed 新增 `compiled_pattern_note` 回显。
+  - 完成 `DONE-284`：Reader 快照新增 hash 算法标记并在 Markdown 回显。
+  - 完成 `DONE-285`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-286/287/288`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_length。
+  - Reader schema hash 长度回显。
+  - EPUB coverage_ratio_precision_note_source_version。
+- 下一位接手第一步：
+  - 执行 `NOW-286`，先在 Feed 预览中回显 compiled pattern 长度。
+
+## 2026-03-29 / Session-112
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-280`：Feed 新增 `compiled_pattern_source` 回显。
+  - 完成 `DONE-281`：Reader 快照 Markdown 增加 `snapshot_schema_fields_json_chars`。
+  - 完成 `DONE-282`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw_source_version_note` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-283/284/285`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_note。
+  - Reader schema hash 算法标记。
+  - EPUB coverage_ratio_precision_note_version。
+- 下一位接手第一步：
+  - 执行 `NOW-283`，先为 Feed compiled pattern 增加 note 字段（prefix/original）。
+
+## 2026-03-29 / Session-111
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-277`：Feed 前缀 regex 模式回显 `compiled_pattern`。
+  - 完成 `DONE-278`：Reader 快照 Markdown 增加 `snapshot_schema_fields_json_first_line`。
+  - 完成 `DONE-279`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_source` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-280/281/282`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed compiled_pattern_source 回显。
+  - Reader schema_fields_json 字符数统计。
+  - EPUB `coverage_ratio_raw_source_version_note`。
+- 下一位接手第一步：
+  - 执行 `NOW-280`，先在 Feed 预览中增加 `compiled_pattern_source` 字段。
+
+## 2026-03-29 / Session-110
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-274`：Feed regex flags 提示增加自动去重后预览（含生效 flags）。
+  - 完成 `DONE-275`：Reader 快照增加 schema hash（`snapshot_schema_fields_hash` + Markdown hash 回显）。
+  - 完成 `DONE-276`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw_source_version` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-277/278/279`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed regex 前缀模式回显 `compiled_pattern`。
+  - Reader Markdown schema_fields_json 首行预览。
+  - EPUB `coverage_ratio_precision_note_source`。
+- 下一位接手第一步：
+  - 执行 `NOW-277`，先在 Feed 预览 Markdown 中回显 regex 实际编译 pattern。
+
+## 2026-03-29 / Session-109
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-271`：Feed regex 过滤支持“仅匹配前缀”快捷开关。
+  - 完成 `DONE-272`：Reader 快照 Markdown 新增 `snapshot_schema_fields_json_lines`。
+  - 完成 `DONE-273`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-274/275/276`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed regex flags 去重后预览提示。
+  - Reader schema_fields_json schema hash。
+  - EPUB `coverage_ratio_raw_source_version`。
+- 下一位接手第一步：
+  - 执行 `NOW-274`，先在 Feed regex flags 提示中增加去重后的 flags 预览。
+
+## 2026-03-29 / Session-108
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-268`：Feed regex flags 输入增加非法字符即时提示。
+  - 完成 `DONE-269`：Reader 快照 schema 新增 `template_source_enum_version` 并回显。
+  - 完成 `DONE-270`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw_source` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-271/272/273`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed regex 前缀匹配快捷开关。
+  - Reader 快照 Markdown schema_fields_json 行数统计。
+  - EPUB TopK `coverage_ratio_precision_note`。
+- 下一位接手第一步：
+  - 执行 `NOW-271`，先为 Feed regex 过滤增加“仅匹配前缀”开关并接入预览逻辑。
+
+## 2026-03-29 / Session-107
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-265`：Feed regex 字段过滤增加大小写敏感开关并持久化。
+  - 完成 `DONE-266`：Reader 快照 Markdown 增加 `snapshot_schema_fields_json` 区块。
+  - 完成 `DONE-267`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_source` 并补单测。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-268/269/270`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed regex flags 非法字符即时提示。
+  - Reader 快照 schema 增加 `template_source_enum_version`。
+  - EPUB TopK 输出 `coverage_ratio_raw_source`。
+- 下一位接手第一步：
+  - 执行 `NOW-268`，先在 Feed 预览区对 regex flags 输入做非法字符即时提示。
+
+## 2026-03-29 / Session-106
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-262`：Feed 正则字段过滤支持 flags 输入与 applied 回显。
+  - 完成 `DONE-263`：Reader 快照 schema 新增 `template_source_enum_note` 并在 Markdown 回显。
+  - 完成 `DONE-264`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw` 并补单测断言。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-265/266/267`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed regex 过滤大小写敏感开关。
+  - Reader 快照 Markdown 增加 schema_fields_json。
+  - EPUB TopK 输出 `coverage_ratio_precision_source`。
+- 下一位接手第一步：
+  - 执行 `NOW-265`，先为 Feed regex 过滤增加大小写敏感开关并做本地持久化。
+
+## 2026-03-29 / Session-105
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-256`：Feed diff 支持按字段名过滤（`diff_field_filter`）。
+  - 完成 `DONE-257`：Reader 快照 schema 新增 `template_source_note` 并在 Markdown 回显。
+  - 完成 `DONE-258`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_source` 并补单测。
+  - 完成 `DONE-259`：Feed diff 字段过滤支持可选正则模式（`diff_field_filter_regex`）与错误回显。
+  - 完成 `DONE-260`：Reader 快照 schema 新增 `template_source_enum` 回显。
+  - 完成 `DONE-261`：EPUB TopK coverage ratio 支持 `--epub-topk-coverage-ratio-precision` 参数化并补单测。
+  - 同步更新 README/看板/状态/决策，`NOW` 推进为 `NOW-262/263/264`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（186/186）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed diff 正则字段过滤支持 flags 输入。
+  - Reader 快照 schema 增加 `template_source_enum_note`。
+  - EPUB TopK 回显 `coverage_ratio_raw`。
+- 下一位接手第一步：
+  - 执行 `NOW-262`，先在 Feed 预览区为 regex 字段过滤增加 flags 输入与持久化。
+
+## 2026-03-29 / Session-104
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-253`：Feed diff 在分组内支持按变化类型排序（`+/-/~` 优先，`=` 置后）并按字段名稳定排序。
+  - 完成 `DONE-254`：Reader 快照新增 schema 元字段（`snapshot_schema_version` + `snapshot_schema_fields.level_label_template_source`）。
+  - 完成 `DONE-255`：EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio` 并补充单测断言。
+  - 同步更新看板/状态/决策，`NOW` 推进为 `NOW-256/257/258`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（185/185）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed diff 按字段名搜索过滤。
+  - Reader 快照 schema 增加 `template_source_note`。
+  - EPUB TopK 增加 `coverage_ratio_source` 回显。
+- 下一位接手第一步：
+  - 执行 `NOW-256`，先在 Feed 预览区加入字段名关键字过滤输入并应用到 diff 行输出。
+
+## 2026-03-29 / Session-103
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-250`：Feed diff 输出按字段类型分组（bool/number/text）。
+  - 完成 `DONE-251`：Reader 快照新增 `level_label_template_source` 模板来源回显。
+  - 完成 `DONE-252`：EPUB TopK 输出新增 `section_doc_basename_topk_other_count` 并补单测。
+  - 文档同步更新，`NOW` 推进为 `NOW-253/254/255`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（185/185）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 组内按变化类型排序。
+  - Reader 模板来源写入快照 schema 字段。
+  - EPUB TopK coverage_ratio。
+- 下一位接手第一步：
+  - 执行 `NOW-253`，先在每个字段类型分组内按 `+/-/~` 排序，再按字段名排序。
+
+## 2026-03-29 / Session-102
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-247`：Feed 冲突详情改为可折叠 `<details>` 展示。
+  - 完成 `DONE-248`：Reader 新增 `level_label_pattern`，支持自定义占位符格式。
+  - 完成 `DONE-249`：EPUB TopK 输出新增 `section_doc_basename_topk_total_candidates` 并补单测。
+  - 更新文档与看板，`NOW` 推进为 `NOW-250/251/252`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（185/185）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed diff 按字段类型分组。
+  - Reader 模板来源回显。
+  - EPUB TopK `topk_other_count`。
+- 下一位接手第一步：
+  - 执行 `NOW-250`，先把字段级 diff 行分组为 bool/number/text 三段输出。
+
+## 2026-03-29 / Session-101
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-244`：Feed diff 增加“仅变化字段”模式（隐藏 `=`）。
+  - 完成 `DONE-245`：Reader 等级文案支持 `level_label_template=zh|en` 模板切换。
+  - 完成 `DONE-246`：EPUB TopK 输出新增 `section_doc_basename_topk_limit_applied` 字段。
+  - 同步更新 README/看板/状态/决策，`NOW` 推进为 `NOW-247/248/249`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（185/185）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed diff 冲突项可折叠展开。
+  - Reader 本地化模板自定义占位符。
+  - EPUB TopK `topk_total_candidates`。
+- 下一位接手第一步：
+  - 执行 `NOW-247`，先实现冲突项折叠（默认折叠，仅显示标题+摘要）。
+
+## 2026-03-29 / Session-100
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-241`：Feed 冲突预览增加字段级差异标记（`+/-/~/=`）。
+  - 完成 `DONE-242`：Reader 等级标签支持自定义文案（`level_label_low/medium/high`）。
+  - 完成 `DONE-243`：EPUB TopK 输出支持 `--epub-topk-limit` 参数与回显字段，并补单测。
+  - 同步更新文档，`NOW` 推进为 `NOW-244/245/246`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（185/185）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed diff 仅展示变化字段。
+  - Reader 等级模板 zh/en 切换。
+  - EPUB TopK `topk_limit_applied` 回显。
+- 下一位接手第一步：
+  - 执行 `NOW-244`，先在冲突预览 diff 中隐藏 `=` 未变化字段并增加开关控制。
+
+## 2026-03-29 / Session-099
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-238`：Feed 预览冲突项按名称排序，并回显列表/详情截断计数。
+  - 完成 `DONE-239`：Reader 快照等级阈值支持 query/localStorage（`level_low_threshold/level_high_threshold`）。
+  - 完成 `DONE-240`：EPUB TopK 统计新增 `section_doc_basename_topk_threshold_applied`。
+  - 文档同步更新，`NOW` 推进为 `NOW-241/242/243`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（184/184）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 字段级 diff 高亮。
+  - Reader 等级文案可自定义。
+  - EPUB TopK `topk_limit` 参数化。
+- 下一位接手第一步：
+  - 执行 `NOW-241`，先在预览 Markdown 的冲突 JSON 中做字段级变化标记（最小实现：字段前缀 +/~/=）。
+
+## 2026-03-29 / Session-098
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-235`：Feed 预览 Markdown 冲突项新增 old/new JSON 片段。
+  - 完成 `DONE-236`：Reader 快照新增 `recent_hit_rate_level` 标签（low/medium/high）。
+  - 完成 `DONE-237`：EPUB TopK 统计支持最小频次阈值（`--epub-topk-min-count`）并补单测。
+  - 更新 README/看板/状态/决策，`NOW` 推进为 `NOW-238/239/240`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（184/184）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 预览冲突项排序与分页截断计数。
+  - Reader 等级标签阈值可配置。
+  - EPUB TopK 阈值应用字段回显。
+- 下一位接手第一步：
+  - 执行 `NOW-238`，先为预览 Markdown 的冲突项增加稳定排序并回显“已截断 N 条”。
+
+## 2026-03-29 / Session-097
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-232`：Feed 导入预览支持仅冲突项过滤（开关持久化）。
+  - 完成 `DONE-233`：Reader 预取快照新增 `recent_hit_miss_sparkline`。
+  - 完成 `DONE-234`：EPUB 统计新增 `section_doc_basename_topk`（TopK 频次）并补单测。
+  - 更新 README 与交接文档，`NOW` 推进为 `NOW-235/236/237`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（183/183）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 预览 Markdown 附带冲突 old/new JSON 片段。
+  - Reader 快照命中率等级标签。
+  - EPUB TopK basename 最小频次阈值过滤。
+- 下一位接手第一步：
+  - 执行 `NOW-235`，先在预览 Markdown 输出中为冲突项追加 old/new JSON 片段（按条目截断）。
+
+## 2026-03-29 / Session-096
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-229`：Feed 预设导入预览支持 Markdown 摘要复制（Added/Conflict 列表）。
+  - 完成 `DONE-230`：Reader 预取快照新增 `window_hit_delta`，支持连续快照趋势对比。
+  - 完成 `DONE-231`：EPUB 统计新增 basename 去重计数 `section_doc_basename_unique_counts`，并补单测。
+  - 同步更新 README 与交接文档，`NOW` 推进为 `NOW-232/233/234`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（183/183）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 预览结果仅展示冲突项过滤。
+  - Reader 快照 `hit/miss` sparkline。
+  - EPUB basename TopK 频次输出。
+- 下一位接手第一步：
+  - 执行 `NOW-232`，先为导入预览增加“只看冲突”模式并回显冲突预设名列表。
+
+## 2026-03-29 / Session-095
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-226`：Feed 自定义预设导入新增 preview-only 模式（不落盘）。
+  - 完成 `DONE-227`：Reader 预取快照新增 `recent_ctx_sources` 轨迹（JSON/Markdown 同步）。
+  - 完成 `DONE-228`：EPUB 提取统计新增 basename 采样字段（`*_samples_basename`）并补单测断言。
+  - 更新 README/看板/状态/决策，`NOW` 推进为 `NOW-229/230/231`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（183/183）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 预设导入预览导出 Markdown diff。
+  - Reader 预取快照 `window_hit_delta`。
+  - EPUB basename 去重计数。
+- 下一位接手第一步：
+  - 执行 `NOW-229`，先在 `frontend/index.html` 预览导入结果增加 Markdown 复制按钮与 diff 文本输出。
+
+## 2026-03-29 / Session-094
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-223`：Feed 预设导入完成提示细化为“新增/覆盖/总计”。
+  - 完成 `DONE-224`：Reader 预取窗口输入新增实时校验与自动纠正提示（`5..500`）。
+  - 完成 `DONE-225`：`import_book.py` dry-run/成功输出显式回显 `epub_sample_limit`。
+  - 更新文档与看板，`NOW` 推进为 `NOW-226/227/228`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（183/183）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 自定义预设导入“仅预览不落盘”模式。
+  - Reader 预取快照追加 `ctx_source` 最近序列。
+  - EPUB 样本统计输出 basename 版本。
+- 下一位接手第一步：
+  - 执行 `NOW-226`，先在 `frontend/index.html` 导入流程新增 preview-only 分支，并在 notice 面板回显预览结果。
+
+## 2026-03-29 / Session-093
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-217`：Feed 自定义预设支持导出/导入 JSON（跨机器迁移），并加入同名冲突覆盖确认。
+  - 完成 `DONE-218`：Reader 预取窗口大小支持 `prefetch_window` 可调（URL/queryEcho 同步）。
+  - 完成 `DONE-219`：`import_book.py` 新增 `--epub-sample-limit`，控制章节文档采样条数（1..50）。
+  - 完成 `DONE-220`：Feed 调试面板新增 trace 历史一键清空。
+  - 完成 `DONE-221`：Reader 预取快照新增 Markdown 复制格式。
+  - 完成 `DONE-222`：EPUB 提取统计新增 `section_doc_name_sampled_counts`（all/kept/skipped_toc/empty）。
+  - 同步更新 README/前端说明/服务说明 + 看板/状态/决策。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（183/183）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 预设导入结果细化为新增/覆盖/总计回显。
+  - Reader 预取窗口输入实时校验提示。
+  - import_book dry-run 输出显式回显 `epub_sample_limit`。
+- 下一位接手第一步：
+  - 执行 `NOW-223`，先在 `frontend/index.html` 预设导入提示里区分“新增数/覆盖数/总导入数”并写入 notice。
+
+## 2026-03-29 / Session-092
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-211`：Reader 预取命中率新增最近 N 次滑动窗口统计，与全量命中率并列展示。
+  - 完成 `DONE-212`：Feed trace 历史升级为带时间戳结构并按时间倒序展示采集时间。
+  - 完成 `DONE-213`：EPUB 导入提取统计新增章节文档名采样字段，并补 `tests/test_import_book.py` 断言。
+  - 完成 `DONE-214`：Feed 自定义预设支持删除（内置预设不可删）。
+  - 完成 `DONE-215`：Reader 新增“复制预取指标快照”按钮（Clipboard + prompt 回退）。
+  - 完成 `DONE-216`：Feed 自定义预设同名保存前增加覆盖确认。
+  - 更新看板/状态/决策，`NOW` 推进为 `NOW-217/218/219`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（182/182）。
+- 变更文件：
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Feed 自定义预设导出/导入 JSON（跨机器迁移）。
+  - Reader 预取窗口大小可配置（query 参数 + UI 回显）。
+  - EPUB 导入章节文档采样支持 CLI 参数调节。
+- 下一位接手第一步：
+  - 执行 `NOW-217`，先在 `frontend/index.html` 增加自定义预设导出/导入 JSON 按钮，并做旧版数据兼容导入。
+
+## 2026-03-29 / Session-091
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-210`：Feed 调试预设支持 localStorage 命名自定义预设（保存当前配置、下拉加载内置+自定义预设、URL 同步与本地持久化兼容）。
+  - 收口并确认 `DONE-208`/`DONE-209` 已实装，对齐看板与状态：拼图页复制内容附带书名摘要；E2E 验收输出 `feed_trace_file_exists` 路径存在性校验。
+  - 补充文档说明：`README.md`、`frontend/README.md`、`server/README.md` 新增“自定义预设”能力说明。
+  - 更新看板与状态，`NOW` 推进为 `NOW-211/212/213`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（182/182）。
+- 变更文件：
+  - `frontend/index.html`
+  - `README.md`
+  - `frontend/README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Reader 预取命中率滑动窗口统计（最近 N 次）。
+  - Feed trace 历史按时间戳排序与采集时间展示。
+  - EPUB 导入输出按章节文档名采样（前 N 条）辅助排障。
+- 下一位接手第一步：
+  - 执行 `NOW-211`，先在 `frontend/reader.html` 为 prefetch 命中率增加“最近 N 次窗口”统计并保留当前全量指标。
+
+## 2026-03-29 / Session-090
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-205`：Reader 页新增“清空预取缓存”按钮，支持即时重置 prefetch cache 并回显清空前后规模。
+  - 完成 `DONE-206`：Feed 调试面板新增最近 5 次 trace 路径历史（本地持久化），复制按钮可回退到最近历史项。
+  - 完成 `DONE-207`：EPUB 导入新增章节级提取统计 `source_extract_stats`，并回显 `section_docs_skipped_toc`。
+  - 更新看板/状态/决策，`NOW` 推进为 `NOW-208/209/210`。
+- 验证：
+  - `python3 -m unittest tests/test_import_book.py -v` 通过（8/8）。
+  - `python3 -m unittest tests.test_postgres_integration.PostgresIntegrationTests.test_accept_end_to_end_flow_script tests.test_postgres_integration.PostgresIntegrationTests.test_accept_end_to_end_flow_script_markdown_jsonl_output -v` 通过（2/2）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（182/182）。
+- 变更文件：
+  - `frontend/reader.html`
+  - `frontend/index.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 拼图页复制链接附带书籍标题摘要。
+  - E2E 验收脚本增加 feed trace_file 路径存在性校验。
+  - Feed 调试预设支持用户自定义保存（命名预设）。
+- 下一位接手第一步：
+  - 执行 `NOW-208`，先在 `frontend/book.html` 复制链接时附带 `book_title` 文本摘要并提供手动复制回退。
+
+## 2026-03-29 / Session-089
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-202`：拼图页新增“复制当前过滤链接”按钮，支持分享 `section/title/sort` 组合视图。
+  - 完成 `DONE-203`：E2E 验收脚本新增 `/v1/chunk_context_batch` warmup + cache hit 验证，并把结果写入 JSON/Markdown/JSONL。
+  - 完成 `DONE-204`：Feed 新增 memory/trace 调试预设，一键回填 query 参数并同步 URL。
+  - 补充相关测试断言与文档，推进看板至 `NOW-205/206/207`。
+- 验证：
+  - `python3 -m unittest tests.test_postgres_integration.PostgresIntegrationTests.test_accept_end_to_end_flow_script tests.test_postgres_integration.PostgresIntegrationTests.test_accept_end_to_end_flow_script_markdown_jsonl_output tests/test_import_book.py -v` 通过（10/10）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（182/182）。
+- 变更文件：
+  - `frontend/book.html`
+  - `frontend/index.html`
+  - `scripts/accept_end_to_end_flow.py`
+  - `tests/test_postgres_integration.py`
+  - `frontend/README.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - Reader 页预取缓存手动清空（调试按钮）。
+  - Feed 调试面板最近 5 次 trace 路径历史。
+  - EPUB 抽取章节级统计（跳过 TOC 页计数回显）。
+- 下一位接手第一步：
+  - 执行 `NOW-205`，先在 `frontend/reader.html` 增加“清空预取缓存”按钮并回显清空前后缓存规模。
+
+## 2026-03-29 / Session-088
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-199`：Reader 页新增预取开关与命中率可视化（`prefetch_hits/context_loads/hit_rate/cache_size`）。
+  - 完成 `DONE-200`：Feed 页调试面板新增“复制最近 trace 路径”按钮（Clipboard API + prompt 回退）。
+  - 完成 `DONE-201`：EPUB 抽取新增 toc/nav 噪声清理启发式，并新增 `test_load_input_payload_epub_skips_toc_noise`。
+  - 看板推进到 `NOW-202/203/204`。
+- 验证：
+  - `python3 -m unittest tests/test_import_book.py -v` 通过（8/8）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（182/182）。
+- 变更文件：
+  - `frontend/reader.html`
+  - `frontend/index.html`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `frontend/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 拼图页过滤条件一键复制分享链接。
+  - E2E 验收脚本增加 chunk_context_batch 命中验证步骤。
+  - Feed 页 memory/trace 调试预设一键回填。
+- 下一位接手第一步：
+  - 执行 `NOW-202`，先在 `frontend/book.html` 增加“复制当前过滤 URL”按钮并回显复制状态。
+
+## 2026-03-29 / Session-087
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-196`：拼图页新增排序切换（`sort=default|read_first`），支持“已读优先”浏览。
+  - 完成 `DONE-197`：拼图页新增 `chunk_title` 关键词过滤（`title` 参数），与 `section` 过滤联动。
+  - 完成 `DONE-198`：`scripts/accept_end_to_end_flow.py` 新增 `--jsonl-output`，可与 `--markdown-output` 并行导出并回显 schema 信息。
+  - 新增 Postgres 集成测试覆盖双报告导出路径：`test_accept_end_to_end_flow_script_markdown_jsonl_output`。
+  - 看板推进到 `NOW-199/200/201`。
+- 验证：
+  - `python3 -m unittest tests.test_postgres_integration.PostgresIntegrationTests.test_accept_end_to_end_flow_script tests.test_postgres_integration.PostgresIntegrationTests.test_accept_end_to_end_flow_script_markdown_jsonl_output -v` 通过（2/2）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（181/181）。
+- 变更文件：
+  - `frontend/book.html`
+  - `scripts/accept_end_to_end_flow.py`
+  - `tests/test_postgres_integration.py`
+  - `frontend/README.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 阅读页预取命中率可视化与开关。
+  - Feed 调试面板最近 trace 路径复制能力。
+  - EPUB 抽取首版 toc/nav 噪声清理。
+- 下一位接手第一步：
+  - 执行 `NOW-199`，先在 `frontend/reader.html` 增加 prefetch 开关与命中率可视化指标。
+
+## 2026-03-29 / Session-086
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-193`：`scripts/import_book.py` 补齐 EPUB 首版抽取（spine 优先）并新增依赖缺失保护（`beautifulsoup4` 缺失时显式报错）。
+  - 完成 `DONE-194`：`frontend/reader.html` 接入 `/v1/chunk_context_batch` 邻居预取与本地命中缓存，切片切换优先使用预取上下文。
+  - 完成 `DONE-195`：Feed 调试面板新增 `trace_file` 开关；后端 `/v1/feed` 在 `trace_file=1` 时回传 `trace_file_path`（绝对路径）并在前端回显。
+  - 同步更新 API/README/交接文档，`NOW` 推进为 `NOW-196/197/198`。
+- 验证：
+  - `python3 -m unittest tests/test_api_contract.py tests/test_import_book.py -v` 通过（42/42）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（180/180）。
+- 变更文件：
+  - `server/app.py`
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `frontend/app.js`
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `frontend/README.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 拼图页按“已读优先”排序切换。
+  - 拼图页 `chunk_title` 关键词过滤。
+  - E2E 验收脚本 Markdown + JSONL 双报告导出。
+- 下一位接手第一步：
+  - 执行 `NOW-196`，先在 `frontend/book.html` 增加“已读优先/默认顺序”切换并同步 URL 参数。
+
+## 2026-03-29 / Session-085
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-192`：书籍拼图页新增 `section_id` 关键词过滤与章节分组展示。
+  - `frontend/book.html` 支持 `section` 查询参数，便于分享/回放指定章节视图。
+  - 样式补充 `section-group` 视觉分组，提升大书拼图可读性。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（179/179）。
+- 变更文件：
+  - `frontend/book.html`
+  - `frontend/styles.css`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - EPUB 首版导入支持。
+  - 阅读页上下文预取接入 `chunk_context_batch`。
+  - Feed 调试面板 trace_file 开关与路径回显。
+- 下一位接手第一步：
+  - 执行 `NOW-193`，先为 `import_book.py` 设计 EPUB 提示/抽取最小实现与测试桩。
+
+## 2026-03-29 / Session-084
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-191`：Feed 新增可切换调试面板（显示 `trace_id/next_cursor/memory_inserted/ranking_source/items_loaded`）。
+  - 调试开关采用本地持久化（`localStorage`），并在开启时自动附带 `trace=1` 请求参数。
+  - 看板推进到 `NOW-192/193/194`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（179/179）。
+- 变更文件：
+  - `frontend/index.html`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 拼图页章节分组与检索。
+  - EPUB 首版导入支持。
+  - 阅读页上下文预取接入 `chunk_context_batch`。
+- 下一位接手第一步：
+  - 执行 `NOW-192`，先在拼图页把 tiles 按 `section_id` 聚合分组展示，并增加章节筛选输入框。
+
+## 2026-03-29 / Session-083
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-190`：阅读页新增“看不懂”快捷反馈按钮。
+  - confusion 事件已接入 `/v1/interactions`，携带 `payload.confusion_type` 与可选 `note`，满足后端校验要求。
+  - 看板推进到 `NOW-191/192/193`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（179/179）。
+- 变更文件：
+  - `frontend/reader.html`
+  - `frontend/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 前端调试面板（trace/cursor/memory 插位）。
+  - 拼图页章节分组与检索。
+  - EPUB 首版导入支持。
+- 下一位接手第一步：
+  - 执行 `NOW-191`，先在 Feed 页面可视化展示 `trace_id/next_cursor/memory_inserted` 并支持开关。
+
+## 2026-03-29 / Session-082
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-188`：新增统一端到端验收脚本 `scripts/accept_end_to_end_flow.py`。
+  - 验收脚本覆盖链路：`import_book -> /v1/feed -> /v1/chunk_context -> /v1/interactions`。
+  - 新增 Postgres 集成测试 `test_accept_end_to_end_flow_script`，锁定脚本回归。
+  - 手工执行验收脚本并生成 Markdown 报告：`logs/accept/e2e_acceptance.md`。
+- 验证：
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（39/39）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（179/179）。
+  - 手工验收结果：`interactions_accepted=4`，`interactions_rejected=0`。
+- 变更文件：
+  - `scripts/accept_end_to_end_flow.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 阅读页 confusion 快捷反馈接入。
+  - 前端调试面板（trace/cursor/memory 插位）展示。
+  - 书籍拼图页章节分组与检索。
+- 下一位接手第一步：
+  - 执行 `NOW-190`，先在 `frontend/reader.html` 增加 confusion 按钮并上报 `event_type=confusion`。
+
+## 2026-03-29 / Session-081
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-187`：Feed 新增回忆帖混排开关（前端可切换 `with_memory=1`）。
+  - 混排开启时透传 `memory_position=interval&memory_every=3`，并保持 `memory_post` 与普通切片的视觉区分。
+  - 看板推进到 `NOW-188/190/191`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（178/178）。
+- 变更文件：
+  - `frontend/index.html`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 端到端验收脚本（导入 -> feed -> context -> events）。
+  - 阅读页 confusion 快捷反馈接入。
+  - 前端调试面板（trace/cursor/memory 插位）。
+- 下一位接手第一步：
+  - 执行 `NOW-188`，先补一个脚本化验收流程，把导入->Feed->上下文->事件上报串起来并输出报告。
+
+## 2026-03-29 / Session-080
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `DONE-189`：`scripts/import_book.py` 接入 PDF 首版抽取（`pypdf`），支持直接读取 PDF 后进入现有清洗/切片管道。
+  - 增加 `EPUB` 显式提示：当前版本未实现 EPUB 抽取，避免隐式乱码失败。
+  - 新增单测：`tests/test_import_book.py` 覆盖 PDF payload 构建与 EPUB 未实现分支。
+  - 对用户上传的两本 PDF 做抽取实测（仅抽取，不入库），验证 clean_text/blocks 可生成。
+- 验证：
+  - `python3 -m unittest tests/test_import_book.py` 通过（6/6）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（178/178）。
+  - 抽取实测：
+    - `A first course ... Iserles.pdf` -> `clean_text_chars=907291`, `blocks=2088`
+    - `像哲学家一样生活...pdf` -> `clean_text_chars=180039`, `blocks=577`
+- 变更文件：
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 前端 with_memory 混排与样式区分（`memory_post/chunk`）。
+  - 端到端验收脚本（导入 -> feed -> context -> events）。
+  - 阅读页 confusion 快捷反馈接入。
+- 下一位接手第一步：
+  - 执行 `NOW-187`，先给 Feed 增加 `with_memory=1` 开关与 `memory_post` 明显样式区分。
+
+## 2026-03-29 / Session-079
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-186`：前端 Feed/Reader 接入 `/v1/interactions` 最小行为上报闭环。
+  - Feed 页新增事件：`impression`、`like`、`comment`、`enter_context`。
+  - Reader 页新增事件：`enter_context`、`backtrack`、`section_complete`。
+  - 抽取前端通用事件构造工具：`frontend/app.js` 新增 UUID/会话/设备 ID 生成与 `sendInteractionEvents` 封装。
+  - 更新看板与状态：`NOW` 推进为 `NOW-187/188/189`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（176/176）。
+- 变更文件：
+  - `frontend/app.js`
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `frontend/styles.css`
+  - `frontend/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 前端 with_memory 混排与样式区分（`memory_post/chunk`）。
+  - 端到端验收脚本（导入 -> feed -> context -> events）。
+  - PDF 首版导入链路（抽取 + 清洗 + 入库）。
+- 下一位接手第一步：
+  - 执行 `NOW-187`，先在 Feed 查询参数增加 `with_memory=1` 可切换开关并区分 `memory_post` 卡片样式。
+
+## 2026-03-29 / Session-078
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-183`：落地 `frontend/` Feed MVP（`index.html` + `styles.css` + `app.js`），支持单列卡片、上下切换、滚轮/键盘/触屏滑动与 `/v1/feed` 分页加载。
+  - 完成 `NOW-184`：落地上下文轴阅读页（`frontend/reader.html`），联通 `/v1/chunk_detail` + `/v1/chunk_context`，支持上一/下一切片跳转。
+  - 完成 `NOW-185`：落地书籍拼图页（`frontend/book.html`），联通 `/v1/book_mosaic`，按 read/unread 展示 tile 并可回跳阅读页。
+  - 后端新增 `/v1/chunk_detail` 与 `/v1/book_mosaic` 接口，补齐前端运行时所需数据面。
+  - 后端新增 `/app` 同源静态托管（包含 `/app/reader`、`/app/book` 路由映射），本地可直接浏览器访问。
+  - 新增 API 合约与 Postgres 集成用例，覆盖 `chunk_detail`、`book_mosaic`、`/app` 静态入口。
+  - 将用户上传 PDF 归档到 `data/books/inbox/`，统一原始书籍入口路径。
+- 验证：
+  - `python3 -m unittest tests/test_api_contract.py` 通过（35/35）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（38/38）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（176/176）。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `server/README.md`
+  - `frontend/README.md`
+  - `frontend/index.html`
+  - `frontend/reader.html`
+  - `frontend/book.html`
+  - `frontend/app.js`
+  - `frontend/styles.css`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+  - `data/books/inbox/A first course in the numerical analysis of differential equations, Second Edition (A. Iserles).pdf`
+  - `data/books/inbox/像哲学家一样生活斯多葛哲学的生活艺术 (威廉·B. 欧文 (William B. Irvine)).pdf`
+- 未完成：
+  - 前端互动上报（点赞/评论/完成）接入 `/v1/interactions`。
+  - 前端 with_memory 混排与样式区分（`memory_post/chunk`）。
+  - 端到端验收脚本（导入 -> feed -> context -> events）。
+- 下一位接手第一步：
+  - 执行 `NOW-186`，先在前端 Feed/Reader 页面加最小事件上报（`impression`、`enter_context`、`section_complete`）并验证落库。
+
+## 2026-03-29 / Session-077
+- 负责人：AI 协作代理
+- 完成：
+  - 复盘当前任务收益后，确认“字段回显类”工作已进入边际递减区间。
+  - 将 `TASK_BOARD` 的 `NOW` 调整为产品闭环优先：`NOW-183` Feed 前端、`NOW-184` 上下文轴、`NOW-185` 书籍拼图页。
+  - 同步更新 `STATE` 当前焦点与阶段描述为 frontend-first 里程碑。
+- 验证：
+  - 本次为路线重排与交接文档更新，不涉及代码行为改动，无需额外测试。
+- 变更文件：
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 启动前端 MVP（Feed 页面）
+  - 上下文轴阅读页联调
+  - 书籍主页拼图页联调
+- 下一位接手第一步：
+  - 执行 `NOW-183`，先初始化 `frontend/` 项目并连通 `/v1/feed` 数据渲染。
+
+## 2026-03-29 / Session-076
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-177`：feed trace query 新增 `memory_diversity_rollout_bucket_percentile_label` 回显（`Pxx`）。
+  - 完成 `NOW-178`：`render_book_homepage_mosaic.py` 脚本 JSON payload 新增 `html_meta_tiles_schema_echoed=true` 回显。
+  - 完成 `NOW-179`：`export_chunk_granularity_ab_samples.py` Markdown 头部新增 `markdown_schema_version` 回显。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_api_contract.py tests/test_postgres_integration.py` 通过（89/89）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（167/167）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed CSV 增加 markdown_schema_version_source_note 列回显（human-readable）
+  - chunk_context_batch cache_stats 增加 sample_chunk_ids_first_seen_source_sorted_chunk_ids_count 回显
+  - compare_auto_tag_rule_versions CSV rule_delta 行增加 markdown_schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-180`，先给 replay CSV 增加 `markdown_schema_version_source_note` 列并补测试。
+
+## 2026-03-29 / Session-075
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-174`：`replay_memory_feed.py --csv-output` 新增 `markdown_schema_version_source` 列回显（`constant`）。
+  - 完成 `NOW-175`：`chunk_context_batch cache_stats` 新增 `sample_chunk_ids_first_seen_source_sorted_chunk_ids` 回显。
+  - 完成 `NOW-176`：`compare_auto_tag_rule_versions.py --csv-output` 的 `summary` 行新增 `markdown_schema_version` 回显。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py tests/test_postgres_integration.py` 通过（84/84）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（166/166）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_bucket_percentile_label 回显（Pxx）
+  - render_book_homepage_mosaic payload 增加 html_meta_tiles_schema_echoed 回显
+  - export_chunk_granularity_ab_samples Markdown 头部增加 markdown_schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-177`，先给 feed trace query 增加 `memory_diversity_rollout_bucket_percentile_label` 回显并补测试。
+
+## 2026-03-29 / Session-074
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-171`：feed trace query 新增 `memory_diversity_rollout_bucket_percentile_source=derived_from_bucket` 回显。
+  - 完成 `NOW-172`：`render_book_homepage_mosaic.py` 导出的 HTML `<head>` 新增 `tiles_json_schema_version` meta 回显。
+  - 完成 `NOW-173`：`export_chunk_granularity_ab_samples.py` 脚本 JSON payload 新增 `markdown_schema_version` 回显（传 `--markdown-output` 时）。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_api_contract.py tests/test_postgres_integration.py` 通过（88/88）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（166/166）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed CSV 增加 markdown_schema_version_source 列回显（constant）
+  - chunk_context_batch cache_stats 增加 sample_chunk_ids_first_seen_source_sorted_chunk_ids 回显
+  - compare_auto_tag_rule_versions CSV summary 行增加 markdown_schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-174`，先给 replay CSV 增加 `markdown_schema_version_source` 列并补测试。
+
+## 2026-03-29 / Session-073
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-168`：`replay_memory_feed.py --csv-output` 新增 `jsonl_schema_version` 列回显。
+  - 完成 `NOW-169`：`chunk_context_batch cache_stats` 新增 `sample_chunk_ids_first_seen_source_count` 回显。
+  - 完成 `NOW-170`：`compare_auto_tag_rule_versions.py` Markdown 报告头部新增 `markdown_schema_version` 回显。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py tests/test_postgres_integration.py` 通过（84/84）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（166/166）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_bucket_percentile_source 回显（derived_from_bucket）
+  - render_book_homepage_mosaic HTML meta 增加 tiles_json_schema_version 回显
+  - export_chunk_granularity_ab_samples JSON payload 增加 markdown_schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-171`，先给 feed trace query 增加 `memory_diversity_rollout_bucket_percentile_source` 回显并补测试。
+
+## 2026-03-29 / Session-072
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-165`：feed trace query 新增 `memory_diversity_rollout_bucket_percentile` 回显（`bucket/100`）。
+  - 完成 `NOW-166`：`render_book_homepage_mosaic.py` 导出的 HTML `<head>` 新增 `html_schema_version` meta 回显。
+  - 完成 `NOW-167`：`export_chunk_granularity_ab_samples.py --csv-output` 新增 `markdown_schema_version` 列回显。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_api_contract.py tests/test_postgres_integration.py` 通过（88/88）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（166/166）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed CSV 增加 jsonl_schema_version 列回显
+  - chunk_context_batch cache_stats 增加 sample_chunk_ids_first_seen_source_count 回显
+  - compare_auto_tag_rule_versions Markdown 头部增加 markdown_schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-168`，先给 replay CSV 增加 `jsonl_schema_version` 列并补测试。
+
+## 2026-03-29 / Session-071
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-162`：`replay_memory_feed.py --csv-output` 新增 `markdown_schema_version` 列回显。
+  - 完成 `NOW-163`：`chunk_context_batch cache_stats` 新增 `sample_chunk_ids_first_seen_source` 映射回显。
+  - 完成 `NOW-164`：`compare_auto_tag_rule_versions.py` 脚本 JSON payload 新增 `markdown_schema_version` 回显（传 `--markdown-output` 时）。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py` 通过（49/49）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（165/165）。
+- 变更文件：
+  - `server/service.py`
+  - `scripts/replay_memory_feed.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_bucket_percentile 回显（bucket/100）
+  - render_book_homepage_mosaic HTML meta 增加 html_schema_version 回显
+  - export_chunk_granularity_ab_samples CSV 增加 markdown_schema_version 列回显
+- 下一位接手第一步：
+  - 执行 `NOW-165`，先给 feed trace query 增加 `memory_diversity_rollout_bucket_percentile` 回显并补测试。
+
+## 2026-03-29 / Session-070
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-159`：feed trace query 新增 `memory_diversity_rollout_threshold_percent` 回显。
+  - 完成 `NOW-160`：`render_book_homepage_mosaic.py` 导出的 `tiles.json` 新增 `html_schema_version` 镜像字段。
+  - 完成 `NOW-161`：`export_chunk_granularity_ab_samples.py` Markdown 头部新增 `schema_version_consistency_note` 回显。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_postgres_integration.py` 通过（87/87）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（165/165）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed CSV 增加 markdown_schema_version 列回显
+  - chunk_context_batch cache_stats 增加 sample_chunk_ids_first_seen_source 映射回显
+  - compare_auto_tag_rule_versions JSON payload 增加 markdown_schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-162`，先给 replay CSV 增加 `markdown_schema_version` 列并补测试。
+
+## 2026-03-29 / Session-069
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-156`：`replay_memory_feed.py` Markdown 总览表新增 `Markdown Schema` 列回显。
+  - 完成 `NOW-157`：`chunk_context_batch cache_stats` 新增 `sample_chunk_ids_sorted_by_seen` 顺序回显。
+  - 完成 `NOW-158`：`compare_auto_tag_rule_versions.py --jsonl-output` 的 `summary/rule_delta` 行新增 `markdown_schema_version` 镜像字段。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py tests/test_postgres_integration.py` 通过（84/84）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（165/165）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_threshold_percent 回显（灰度阈值）
+  - render_book_homepage_mosaic tiles JSON 增加 html_schema_version 镜像字段
+  - export_chunk_granularity_ab_samples Markdown 增加 schema_version_consistency_note 回显
+- 下一位接手第一步：
+  - 执行 `NOW-159`，先给 feed trace query 增加 `memory_diversity_rollout_threshold_percent` 回显并补测试。
+
+## 2026-03-29 / Session-068
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-153`：feed trace query 新增 `memory_diversity_rollout_bucket_distance` 回显（`bucket - gray_percent`，未开启灰度时为 `null`）。
+  - 完成 `NOW-154`：`render_book_homepage_mosaic.py` 脚本 JSON payload 新增 `html_schema_version`。
+  - 完成 `NOW-155`：`export_chunk_granularity_ab_samples.py` 脚本 JSON payload 新增 `schema_version_consistency_note`。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py tests/test_compare_auto_tag_rule_versions.py tests/test_postgres_integration.py` 通过（86/86）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（165/165）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed Markdown 总览增加 markdown_schema_version 列回显
+  - chunk_context_batch cache_stats 增加 sample_chunk_ids_sorted_by_seen 顺序回显
+  - compare_auto_tag_rule_versions JSONL 增加 markdown_schema_version 镜像字段
+- 下一位接手第一步：
+  - 执行 `NOW-156`，先给 replay Markdown 总览区块增加 `markdown_schema_version` 列并补测试。
+
+## 2026-03-29 / Session-067
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-150`：`replay_memory_feed.py --jsonl-output` 每行新增 `markdown_schema_version` 镜像字段。
+  - 完成 `NOW-151`：`chunk_context_batch cache_stats` 新增 `sample_book_ids_sorted_by_seen` 顺序回显。
+  - 完成 `NOW-152`：`compare_auto_tag_rule_versions.py` Markdown 头部新增 `schema_version_consistency_note` 回显。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py` 通过（49/49）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（164/164）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_bucket_distance 数值回显（bucket-gray_percent）
+  - render_book_homepage_mosaic payload 增加 html_schema_version 字段
+  - export_chunk_granularity_ab_samples JSON payload 增加 schema_version_consistency_note 字段
+- 下一位接手第一步：
+  - 执行 `NOW-153`，先为 feed trace query 增加 `memory_diversity_rollout_bucket_distance` 回显并补测试。
+
+## 2026-03-29 / Session-066
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-147`：feed trace query 新增 `memory_diversity_rollout_bucket_hit` 布尔回显（`bucket < gray_percent`）。
+  - 完成 `NOW-148`：`render_book_homepage_mosaic.py` 导出的 `tiles.json` 新增 `tiles_json_schema_version` 镜像字段。
+  - 完成 `NOW-149`：`export_chunk_granularity_ab_samples.py` Markdown 报告头部新增 `jsonl_schema_version/csv_schema_version` 回显。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_api_contract.py` 通过（51/51）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（164/164）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed JSONL 增加 markdown_schema_version 镜像字段
+  - chunk_context_batch cache_stats 增加 sample_book_ids_sorted_by_seen 顺序回显
+  - compare_auto_tag_rule_versions Markdown 增加 schema_version_consistency_note 回显
+- 下一位接手第一步：
+  - 执行 `NOW-150`，先给 replay JSONL 增加 `markdown_schema_version` 镜像字段并补测试。
+
+## 2026-03-29 / Session-065
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-144`：`replay_memory_feed.py` Markdown 头部新增 `markdown_schema_version`，并在脚本 JSON 输出中回显 `markdown_schema_version`（仅 `--markdown-output`）。
+  - 完成 `NOW-145`：`chunk_context_batch cache_stats` 新增 `sample_chunk_ids_count`（样本 `chunk_ids` 去重计数）。
+  - 完成 `NOW-146`：`compare_auto_tag_rule_versions.py` 脚本 JSON 输出新增 `schema_version_consistency_note`。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_export_chunk_granularity_ab_samples.py tests/test_api_contract.py` 通过（55/55）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（163/163）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_bucket_hit 布尔回显（bucket < gray_percent）
+  - render_book_homepage_mosaic tiles JSON 增加 tiles_json_schema_version 镜像字段
+  - export_chunk_granularity_ab_samples Markdown 增加 csv/jsonl schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-147`，先给 feed trace query 增加 `memory_diversity_rollout_bucket_hit` 回显并补测试。
+
+## 2026-03-29 / Session-064
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-141`：feed trace query 新增 `memory_diversity_rollout_mode` 回显（`off|partial|full`）。
+  - 完成 `NOW-142`：`render_book_homepage_mosaic.py` 导出 HTML 头部 meta 新增 `tiles_json_schema_version` 回显。
+  - 完成 `NOW-143`：`export_chunk_granularity_ab_samples.py --jsonl-output` 每行新增 `csv_schema_version` 镜像字段。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_api_contract.py` 通过（50/50）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（163/163）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed Markdown 头部增加 markdown_schema_version 字段回显
+  - chunk_context_batch cache_stats 增加 sample_chunk_ids_count 字段
+  - compare_auto_tag_rule_versions JSON payload 增加 schema_version_consistency_note 字段
+- 下一位接手第一步：
+  - 执行 `NOW-144`，先为 replay Markdown 增加 `markdown_schema_version` 回显并补测试。
+
+## 2026-03-29 / Session-063
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-138`：`replay_memory_feed.py` 的 Markdown 头部新增 `schema_version_consistency_note` 回显，并与脚本 JSON 输出复用同一一致性说明计算逻辑。
+  - 完成 `NOW-139`：`chunk_context_batch cache_stats` 新增 `sample_book_ids_count` 字段（`sample_book_ids` 去重计数）。
+  - 完成 `NOW-140`：`compare_auto_tag_rule_versions.py --jsonl-output` 的 `rule_delta` 行新增 `csv_schema_version` 字段，并同步更新 Markdown schema 说明。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py` 通过（49/49）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（162/162）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_mode 字符串回显（off|full|partial）
+  - render_book_homepage_mosaic HTML meta 增加 tiles_json_schema_version 回显
+  - export_chunk_granularity_ab_samples JSONL 增加 csv_schema_version 镜像字段
+- 下一位接手第一步：
+  - 执行 `NOW-141`，先在 feed trace query 增加 `memory_diversity_rollout_mode` 回显并补测试。
+
+## 2026-03-29 / Session-062
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-135`：feed trace query 新增 `memory_diversity_rollout_enabled` 布尔回显。
+  - 完成 `NOW-136`：`render_book_homepage_mosaic.py` 的 tiles JSON 与 CLI payload 新增 `html_title`。
+  - 完成 `NOW-137`：`export_chunk_granularity_ab_samples.py` CSV 增加 `schema_version` 列（含 summary 行）。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_compare_auto_tag_rule_versions.py` 通过（54/54）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（162/162）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed Markdown 增加 `schema_version_consistency_note` 回显
+  - chunk_context_batch cache_stats 增加 sample_book_ids_count 字段
+  - compare_auto_tag_rule_versions JSONL rule_delta 行增加 csv_schema_version 字段
+- 下一位接手第一步：
+  - 执行 `NOW-138`，先补 replay Markdown 的一致性说明回显并补测试。
+
+## 2026-03-29 / Session-061
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-132`：`replay_memory_feed.py` 脚本输出新增 `schema_version_consistency_note`。
+  - 完成 `NOW-133`：`chunk_context_batch cache_stats` 新增 `sample_book_ids` 字段。
+  - 完成 `NOW-134`：`compare_auto_tag_rule_versions.py --csv-output` summary 行新增 `jsonl_schema_version` 列。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_replay_memory_feed.py tests/test_compare_auto_tag_rule_versions.py` 通过（61/61）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（161/161）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_rollout_enabled 布尔回显
+  - render_book_homepage_mosaic tiles JSON 增加 html_title 回显字段
+  - export_chunk_granularity_ab_samples CSV summary 行增加 schema_version 字段
+- 下一位接手第一步：
+  - 执行 `NOW-135`，先给 trace query 增加 rollout_enabled 布尔回显并补测试。
+
+## 2026-03-29 / Session-060
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-129`：feed trace query 新增 `memory_diversity_bucket`（`0..99`）回显字段。
+  - 完成 `NOW-130`：`render_book_homepage_mosaic.py` 导出 HTML 头部新增 `min_read_events` 回显。
+  - 完成 `NOW-131`：`export_chunk_granularity_ab_samples.py` JSONL 每行新增 `schema_version` 并回显 `jsonl_schema_version`。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py tests/test_replay_memory_feed.py` 通过（56/56）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（35/35）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（161/161）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed 输出 payload 增加 `csv_schema_version`/`jsonl_schema_version` 一致性说明字段
+  - chunk_context_batch cache_stats 增加 sample_book_ids（样本内 book_id 去重列表）
+  - compare_auto_tag_rule_versions CSV summary 行增加 jsonl_schema_version 回显列
+- 下一位接手第一步：
+  - 执行 `NOW-132`，先为 replay payload 增加 schema 版本一致性说明字段并补测试。
+
+## 2026-03-29 / Session-059
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-126`：`replay_memory_feed.py` Markdown 头部新增 `csv_schema_version/jsonl_schema_version` 回显。
+  - 完成 `NOW-127`：`chunk_context_batch cache_stats` 新增 `sample_count` 字段。
+  - 完成 `NOW-128`：`compare_auto_tag_rule_versions.py` JSONL summary 新增 `csv_schema_version`。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py` 通过（49/49）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（34/34）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（159/159）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity_bucket（0-99）调试回显
+  - render_book_homepage_mosaic HTML 头部增加 min_read_events 回显
+  - export_chunk_granularity_ab_samples JSONL 增加 schema_version 字段
+- 下一位接手第一步：
+  - 执行 `NOW-129`，先给 trace query 增加 memory_diversity_bucket 回显并补测试。
+
+## 2026-03-29 / Session-058
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-123`：feed trace query 新增 `memory_diversity_default_note` 说明字符串。
+  - 完成 `NOW-124`：`render_book_homepage_mosaic.py` 的 tiles JSON 与 CLI payload 新增 `min_read_events` 回显。
+  - 完成 `NOW-125`：`export_chunk_granularity_ab_samples.py` Markdown 新增 `CSV Notes` 区块说明 `keyword_filter_summary` 汇总行。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py` 通过（47/47）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（34/34）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（159/159）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed Markdown 增加 CSV/JSONL schema_version 回显
+  - chunk_context_batch cache_stats 增加 sample_count 字段（样本条数回显）
+  - compare_auto_tag_rule_versions JSONL summary 增加 csv_schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-126`，先补 replay Markdown 的 schema_version 回显并补测试。
+
+## 2026-03-29 / Session-057
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-120`：`replay_memory_feed.py` 的 CSV 导出新增 `schema_version` 与 `csv_schema_version` 回显。
+  - 完成 `NOW-121`：`chunk_context_batch cache_stats.cache_key_samples` 新增 `expire_in_sec/expire_estimate_ts`。
+  - 完成 `NOW-122`：`compare_auto_tag_rule_versions.py` Markdown 报告回显 `csv_schema_version/jsonl_schema_version`。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py tests/test_api_contract.py` 通过（49/49）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（34/34）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（158/158）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity 默认值（on/off）来源说明字符串
+  - render_book_homepage_mosaic tiles JSON 增加 min_read_events 回显字段
+  - export_chunk_granularity_ab_samples Markdown 增加 CSV 汇总行说明区块
+- 下一位接手第一步：
+  - 执行 `NOW-123`，先在 trace query 增加默认值来源说明并补测试。
+
+## 2026-03-29 / Session-056
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-117`：feed trace query 增加 `memory_diversity_gray_percent` 回显字段。
+  - 完成 `NOW-118`：`render_book_homepage_mosaic.py` 图例增加 `read/unread` 数量统计。
+  - 完成 `NOW-119`：`export_chunk_granularity_ab_samples.py` CSV 在关键词过滤场景追加 `keyword_filter_summary` 汇总行。
+- 验证：
+  - `python3 -m unittest tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py tests/test_export_chunk_granularity_ab_samples.py` 通过（46/46）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（34/34）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（158/158）。
+- 变更文件：
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed CSV 增加 schema_version 列
+  - chunk_context_batch cache_stats 的 cache_key_samples 增加 expire_at 预估时间
+  - compare_auto_tag_rule_versions Markdown 增加 CSV/JSONL schema_version 回显
+- 下一位接手第一步：
+  - 执行 `NOW-120`，先补 replay CSV 的 schema_version 并补集成测试。
+
+## 2026-03-29 / Session-055
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-114`：`replay_memory_feed.py` JSONL 导出新增 `schema_version`，并在脚本输出回显 `jsonl_schema_version`。
+  - 完成 `NOW-115`：`chunk_context_batch cache_stats` 新增 `cache_key_samples`（最多 3 个调试样本）。
+  - 完成 `NOW-116`：`compare_auto_tag_rule_versions.py --csv-output` 新增 `schema_version` 列，并回显 `csv_schema_version`。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_compare_auto_tag_rule_versions.py tests/test_service_cache.py tests/test_api_contract.py` 通过（49/49）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（34/34）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（156/156）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace_file 增加 memory_diversity 灰度百分比回显字段
+  - render_book_homepage_mosaic 页面图例增加 read/unread 数量统计
+  - export_chunk_granularity_ab_samples CSV 增加 keyword_filter_hit_rate 汇总行
+- 下一位接手第一步：
+  - 执行 `NOW-117`，先给 feed trace query 增加灰度百分比回显并补测试。
+
+## 2026-03-29 / Session-054
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-111`：`export_chunk_granularity_ab_samples.py` 在 `--chunk-title-keyword` 场景下新增关键词过滤命中率统计并写入 Markdown。
+  - 完成 `NOW-112`：feed trace 落盘 query 增加 `memory_diversity_source`（`query/default/gray`）来源标记。
+  - 完成 `NOW-113`：`render_book_homepage_mosaic.py` 的 tiles JSON 增加 `schema_version`，CLI payload 回显 `tiles_json_schema_version`。
+- 验证：
+  - `python3 -m unittest tests/test_export_chunk_granularity_ab_samples.py tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py tests/test_render_book_homepage_mosaic.py` 通过（44/44）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（34/34）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（155/155）。
+- 变更文件：
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `server/app.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed JSONL 增加 schema_version 字段
+  - chunk_context_batch cache_stats 增加 cache_key_samples（最多 3 个）调试字段
+  - compare_auto_tag_rule_versions CSV 增加 schema_version 列
+- 下一位接手第一步：
+  - 执行 `NOW-114`，先给 replay JSONL 增加 schema_version 并补兼容测试。
+
+## 2026-03-29 / Session-053
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-108`：`replay_memory_feed.py` 的 CSV 导出新增 `memory_type_distribution` 列（追加在末尾，保持旧列顺序兼容）。
+  - 完成 `NOW-109`：`chunk_context_batch cache_stats` 新增 `cache_key_cardinality` 估算字段，并补齐 API 合约/集成测试断言。
+  - 完成 `NOW-110`：`compare_auto_tag_rule_versions.py --jsonl-output` 新增 `schema_version` 字段，CLI 输出增加 `jsonl_schema_version` 回显。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_compare_auto_tag_rule_versions.py tests/test_service_cache.py tests/test_api_contract.py` 通过（47/47）。
+  - `python3 -m unittest tests/test_postgres_integration.py` 通过（34/34）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（153/153）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - export_chunk_granularity_ab_samples Markdown 增加关键词过滤命中率统计
+  - feed trace_file 落盘增加 memory_diversity 默认来源标记（query/default/gray）
+  - render_book_homepage_mosaic tiles JSON 增加 schema_version 字段
+- 下一位接手第一步：
+  - 执行 `NOW-111`，先补 chunk 粒度 Markdown 的关键词命中率统计并补测试。
+
+## 2026-03-29 / Session-052
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-105`：`export_chunk_granularity_ab_samples.py` 新增 `--chunk-title-keyword`（SQL 层 `ILIKE` 过滤），并在 Markdown/CLI 输出回显关键词。
+  - 完成 `NOW-106`：`/v1/feed` 的 `memory_diversity` 默认策略改为环境变量可控灰度（`BOOKFLOW_MEMORY_DIVERSITY_DEFAULT/BOOKFLOW_MEMORY_DIVERSITY_GRAY_PERCENT/BOOKFLOW_MEMORY_DIVERSITY_GRAY_SALT`）。
+  - 完成 `NOW-107`：`render_book_homepage_mosaic.py` 新增 tile 状态图例与 `exported_at` 时间戳（HTML + tiles JSON + CLI payload）。
+- 验证：
+  - `python3 -m unittest tests/test_export_chunk_granularity_ab_samples.py tests/test_render_book_homepage_mosaic.py tests/test_feed_memory_diversity_rollout.py tests/test_api_contract.py` 通过（42/42）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（153/153）。
+- 变更文件：
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `server/app.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_feed_memory_diversity_rollout.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed CSV 增加 `memory_type_distribution` 列（保持向后兼容）
+  - chunk_context_batch cache_stats 增加 `cache_key_cardinality` 估算字段
+  - compare_auto_tag_rule_versions JSONL 增加 `schema_version` 字段
+- 下一位接手第一步：
+  - 执行 `NOW-108`，先扩展 replay CSV 字段并补齐向后兼容测试。
+
+## 2026-03-29 / Session-051
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-102`：`replay_memory_feed` Markdown 增加场景级 `memory_type_distribution` 统计。
+  - 完成 `NOW-103`：`chunk_context_batch cache_stats` 增加 `instance_started_ts` 字段。
+  - 完成 `NOW-104`：`compare_auto_tag_rule_versions` Markdown 增加 CSV/JSONL schema 说明块。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_api_contract.py tests/test_compare_auto_tag_rule_versions.py -v` 通过（47/47）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（33/33）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（146/146）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - export_chunk_granularity_ab_samples 按 `chunk_title` 关键词过滤
+  - feed memory_diversity 默认策略灰度开关（环境变量）
+  - render_book_homepage_mosaic 增加 tile 状态图例与导出时间戳
+- 下一位接手第一步：
+  - 执行 `NOW-105`，先给 chunk 粒度导出脚本增加 `--title-keyword` 过滤并补单测。
+
+## 2026-03-29 / Session-050
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-099`：`export_chunk_granularity_ab_samples.py` 新增 `--section-prefix`（SQL 层过滤）并补充单测/集成测试。
+  - 完成 `NOW-100`：`/v1/feed` 新增 `memory_diversity=on|off`，支持多样化轮转与时间倒序回退。
+  - 完成 `NOW-101`：`render_book_homepage_mosaic.py` 新增 `--tiles-json-output`，导出前端联调 JSON。
+- 验证：
+  - `python3 -m unittest tests/test_export_chunk_granularity_ab_samples.py tests/test_render_book_homepage_mosaic.py tests/test_api_contract.py tests/test_postgres_integration.py tests/test_compare_auto_tag_rule_versions.py -v` 通过（74/74）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（145/145）。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed Markdown 增加场景级 memory_type 分布统计
+  - chunk_context_batch cache_stats 增加 `instance_started_ts`
+  - compare_auto_tag_rule_versions Markdown 增加导出 schema 说明块
+- 下一位接手第一步：
+  - 执行 `NOW-102`，先在 replay Markdown 报告增加 `memory_type` 分布统计并补单测。
+
+## 2026-03-29 / Session-049
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-096`：补齐 `replay_memory_feed` JSONL 字段说明（含 `first_item_type`）。
+  - 完成 `NOW-097`：`chunk_context_batch cache_stats` 新增 `instance_id`。
+  - 完成 `NOW-098`：`compare_auto_tag_rule_versions` CSV 新增 `rule_rank` 列。
+- 验证：
+  - `python3 -m unittest tests/test_service_cache.py tests/test_api_contract.py tests/test_compare_auto_tag_rule_versions.py -v` 通过（36/36）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（31/31）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（139/139）。
+- 变更文件：
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - export_chunk_granularity_ab_samples 按章节范围过滤（`--section-prefix`）
+  - feed 回忆帖候选多样化策略开关（`memory_diversity=on|off`）
+  - render_book_homepage_mosaic 导出 tile JSON
+- 下一位接手第一步：
+  - 执行 `NOW-099`，先给 chunk 粒度 A/B 脚本增加 `--section-prefix` 过滤并补单测。
+
+## 2026-03-29 / Session-048
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-093`：新增 `scripts/export_chunk_granularity_ab_samples.py`（完整小节 vs 二段拆分）及单测/集成测试。
+  - 完成 `NOW-094`：memory 候选改为 `source_chunk + memory_type` 轮转优先，并补充多样化集成测试。
+  - 完成 `NOW-095`：新增 `scripts/render_book_homepage_mosaic.py`，导出书籍主页拼图静态原型页。
+- 验证：
+  - `python3 -m unittest tests/test_export_chunk_granularity_ab_samples.py tests/test_render_book_homepage_mosaic.py -v` 通过（7/7）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（31/31）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（139/139）。
+- 变更文件：
+  - `scripts/export_chunk_granularity_ab_samples.py`
+  - `scripts/render_book_homepage_mosaic.py`
+  - `server/repository.py`
+  - `tests/test_export_chunk_granularity_ab_samples.py`
+  - `tests/test_render_book_homepage_mosaic.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/specs/api.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed JSONL 字段说明补齐（含 `first_item_type`）
+  - chunk_context_batch cache_stats 增加 `instance_id`
+  - compare_auto_tag_rule_versions CSV 导出增加 `rule_rank`
+- 下一位接手第一步：
+  - 执行 `NOW-096`，先补齐 replay JSONL 字段文档（README + server/README + 示例输出说明）。
+
+## 2026-03-29 / Session-047
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-090`：补充 `replay_memory_feed.py --csv-output` 的列说明文档，明确 `first_item_type` 语义。
+  - 完成 `NOW-091`：`chunk_context_batch cache_stats` 增加 `reset_ts`（最近一次重置时间）。
+  - 完成 `NOW-092`：`compare_auto_tag_rule_versions.py --jsonl-output` 的 `rule_delta` 行增加 `rule_rank`。
+  - 同步收口 `NOW-087/088/089`：任务看板与状态文档完成归档，推进 `NOW-093/094/095`。
+- 验证：
+  - `python3 -m unittest tests/test_service_cache.py tests/test_api_contract.py tests/test_compare_auto_tag_rule_versions.py -v` 通过（36/36）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（28/28）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（129/129）。
+- 变更文件：
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - A/B 框架：完整小节 vs 小节内二段拆分（离线分流脚本）
+  - 回忆帖插流策略优化（候选源多样性 + 频控协同）
+  - 书籍主页拼图可视化细化（进度拼图原型）
+- 下一位接手第一步：
+  - 执行 `NOW-093`，先落地“完整小节 vs 二段拆分”的离线分流样本生成脚本与回归测试。
+
+## 2026-03-29 / Session-046
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-084`：`replay_memory_feed.py` 在 Markdown 报告中增加每场景 `first_item_type` 统计。
+  - 完成 `NOW-085`：`chunk_context_batch cache_stats` 增加 `cache_entries_delta`。
+  - 完成 `NOW-086`：`compare_auto_tag_rule_versions.py` Markdown 报告增加 `top` 配置回显。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_api_contract.py tests/test_service_cache.py tests/test_compare_auto_tag_rule_versions.py -v` 通过（43/43）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（28/28）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（125/125）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/app.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - export_memory_position_ab_samples YAML 配置输入
+  - cleanup_import_error_reports 自定义 markdown detail limit
+  - cleanup_feed_trace_files Markdown 路径截断计数
+- 下一位接手第一步：
+  - 执行 `NOW-087`，先为 export 脚本增加 YAML 配置解析（兼容 JSON）并补单测。
+
+## 2026-03-29 / Session-045
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-081`：`export_memory_position_ab_samples.py` 支持 `--scenario-config`（JSON 场景配置）。
+  - 完成 `NOW-082`：`cleanup_import_error_reports.py` Markdown 报告增加路径截断计数。
+  - 完成 `NOW-083`：`cleanup_feed_trace_files.py` 新增 `--csv-output`。
+  - 补充样例配置：`config/memory_position_arms.sample.json`。
+- 验证：
+  - `python3 -m unittest tests/test_export_memory_position_ab_samples.py tests/test_cleanup_import_error_reports.py tests/test_cleanup_feed_trace_files.py -v` 通过（32/32）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（28/28）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（125/125）。
+- 变更文件：
+  - `scripts/export_memory_position_ab_samples.py`
+  - `scripts/cleanup_import_error_reports.py`
+  - `scripts/cleanup_feed_trace_files.py`
+  - `tests/test_export_memory_position_ab_samples.py`
+  - `tests/test_cleanup_import_error_reports.py`
+  - `tests/test_cleanup_feed_trace_files.py`
+  - `tests/test_postgres_integration.py`
+  - `config/memory_position_arms.sample.json`
+  - `README.md`
+  - `server/README.md`
+  - `docs/ops/feed_trace_cleanup_scheduler.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed Markdown 报告的首条内容类型统计
+  - chunk_context_batch cache_stats 的 `cache_entries_delta`
+  - compare_auto_tag_rule_versions Markdown TopN 配置回显
+- 下一位接手第一步：
+  - 执行 `NOW-084`，先在 replay Markdown 报告加入每场景首条 item_type 统计并补单测。
+
+## 2026-03-29 / Session-044
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-078`：`replay_memory_feed.py` 新增 `--csv-output`。
+  - 完成 `NOW-079`：`chunk_context_batch cache_stats` 新增 `last_reset_trace_id`。
+  - 完成 `NOW-080`：`compare_auto_tag_rule_versions.py` 新增 `--jsonl-output`。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_api_contract.py tests/test_compare_auto_tag_rule_versions.py -v` 通过（43/43）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（27/27）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（118/118）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/app.py`
+  - `server/service.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - export_memory_position_ab_samples 场景配置文件输入
+  - cleanup_import_error_reports Markdown 截断计数
+  - cleanup_feed_trace_files CSV summary 导出
+- 下一位接手第一步：
+  - 执行 `NOW-081`，先为 export 脚本新增场景配置文件解析与单测。
+
+## 2026-03-29 / Session-043
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-075`：`export_memory_position_ab_samples.py` 新增 `--markdown-output`。
+  - 完成 `NOW-076`：`cleanup_import_error_reports.py` 新增 `--csv-output`（摘要一行）。
+  - 完成 `NOW-077`：`cleanup_feed_trace_files.py` 新增 `--markdown-output`。
+- 验证：
+  - `python3 -m unittest tests/test_export_memory_position_ab_samples.py tests/test_cleanup_import_error_reports.py tests/test_cleanup_feed_trace_files.py -v` 通过（26/26）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（26/26）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（114/114）。
+- 变更文件：
+  - `scripts/export_memory_position_ab_samples.py`
+  - `scripts/cleanup_import_error_reports.py`
+  - `scripts/cleanup_feed_trace_files.py`
+  - `tests/test_export_memory_position_ab_samples.py`
+  - `tests/test_cleanup_import_error_reports.py`
+  - `tests/test_cleanup_feed_trace_files.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/ops/feed_trace_cleanup_scheduler.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed CSV 汇总导出
+  - cache_stats 全局重置 trace 记录字段
+  - compare_auto_tag_rule_versions JSONL 明细导出
+- 下一位接手第一步：
+  - 执行 `NOW-078`，先给 replay 脚本增加 `--csv-output` 与对应测试。
+
+## 2026-03-29 / Session-042
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-072`：`replay_memory_feed` Markdown 报告增加跨场景 `Overview` 表。
+  - 完成 `NOW-073`：`chunk_context_batch` 的 `cache_stats` 增加请求级 delta（hit/source_fetch/expired）。
+  - 完成 `NOW-074`：`compare_auto_tag_rule_versions.py` 新增 `--markdown-output`。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_api_contract.py tests/test_compare_auto_tag_rule_versions.py -v` 通过（35/35）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（26/26）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（110/110）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/app.py`
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - export_memory_position_ab_samples Markdown 报告输出
+  - cleanup_import_error_reports CSV summary 导出
+  - cleanup_feed_trace_files Markdown 报告输出
+- 下一位接手第一步：
+  - 执行 `NOW-075`，先为 `export_memory_position_ab_samples.py` 增加 `--markdown-output` 与测试。
+
+## 2026-03-29 / Session-041
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-069`：新增 `scripts/export_memory_position_ab_samples.py`，导出 `top/interval/random` 三臂样本（JSONL/CSV）。
+  - 完成 `NOW-070`：`cleanup_feed_trace_files.py` 增加 `--summary-only`。
+  - 完成 `NOW-071`：`cleanup_import_error_reports.py` 增加 `--markdown-output`，生成 Markdown 清理报告。
+- 验证：
+  - `python3 -m unittest tests/test_cleanup_feed_trace_files.py tests/test_cleanup_import_error_reports.py tests/test_export_memory_position_ab_samples.py -v` 通过（22/22）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（26/26）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（109/109）。
+- 变更文件：
+  - `scripts/export_memory_position_ab_samples.py`
+  - `scripts/cleanup_feed_trace_files.py`
+  - `scripts/cleanup_import_error_reports.py`
+  - `tests/test_export_memory_position_ab_samples.py`
+  - `tests/test_cleanup_feed_trace_files.py`
+  - `tests/test_cleanup_import_error_reports.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/ops/feed_trace_cleanup_scheduler.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - replay_memory_feed Markdown 摘要总览区块
+  - chunk_context_batch cache_stats 请求级 delta 指标
+  - compare_auto_tag_rule_versions Markdown 报告输出
+- 下一位接手第一步：
+  - 执行 `NOW-072`，先给 replay Markdown 报告增加跨场景摘要区块并补单测。
+
+## 2026-03-29 / Session-040
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-067`：`replay_memory_feed.py` 新增 `--markdown-output`，支持按场景输出 Markdown 报告。
+  - 完成 `NOW-068`：`chunk_context_batch` 在 `cache_stats` 中新增 `request_trace_id`，与顶层 `trace_id` 绑定。
+  - 补充测试覆盖：单测、API 合约、Postgres 集成测试全部覆盖新行为。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py tests/test_service_cache.py tests/test_api_contract.py -v` 通过（36/36）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（25/25）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（102/102）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `server/app.py`
+  - `server/service.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - memory_position 策略 AB 样本导出脚本
+  - cleanup_feed_trace_files summary-only 模式
+  - cleanup_import_error_reports Markdown 报告输出
+- 下一位接手第一步：
+  - 执行 `NOW-069`，先产出 memory_position 多策略 AB 样本导出脚本与基础测试。
+
+## 2026-03-29 / Session-039
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-065`：`cleanup_import_error_reports.py` 增加 `--summary-only`。
+  - 新增 `output_payload()`，支持“统计视图/完整视图”输出切换。
+  - 补充单测覆盖 summary-only 行为。
+- 验证：
+  - `python3 -m unittest tests/test_cleanup_import_error_reports.py -v` 通过（9/9）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（96/96）。
+- 变更文件：
+  - `scripts/cleanup_import_error_reports.py`
+  - `tests/test_cleanup_import_error_reports.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - compare_auto_tag_rule_versions CSV 导出
+  - replay_memory_feed Markdown 报告
+  - cache_stats 请求级 trace_id 关联
+- 下一位接手第一步：
+  - 执行 `NOW-066`，先为 compare 脚本增加 `--csv-output` 与集成测试。
+
+## 2026-03-29 / Session-038
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-064`：`cleanup_feed_trace_files.py` 增加 `--cron-exit-codes`。
+  - 退出码语义对齐 import 清理脚本（`0/2/3/4`）。
+  - 补充单测与调度文档说明。
+- 验证：
+  - `python3 -m unittest tests/test_cleanup_feed_trace_files.py -v` 通过（7/7）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（94/94）。
+- 变更文件：
+  - `scripts/cleanup_feed_trace_files.py`
+  - `tests/test_cleanup_feed_trace_files.py`
+  - `README.md`
+  - `docs/ops/feed_trace_cleanup_scheduler.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - cleanup_import_error_reports summary-only 输出
+  - compare_auto_tag_rule_versions CSV 导出
+  - replay_memory_feed Markdown 报告
+- 下一位接手第一步：
+  - 执行 `NOW-065`，先为 import 清理脚本增加 `--summary-only` 并补回归测试。
+
+## 2026-03-29 / Session-037
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-063`：`memory_position=random` 新增 `memory_random_never_first` 开关（默认 `1`）。
+  - 随机插位路径支持“允许首条 memory”实验（`memory_random_never_first=0`）。
+  - 新增合约测试与 Postgres 集成测试（包含允许首条回忆帖场景）。
+- 验证：
+  - `python3 -m unittest tests/test_api_contract.py -v` 通过（24/24）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（24/24）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（90/90）。
+- 变更文件：
+  - `server/app.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace 清理脚本 cron 退出码
+  - cleanup_import_error_reports summary-only 输出
+  - compare_auto_tag_rule_versions CSV 导出
+- 下一位接手第一步：
+  - 执行 `NOW-064`，先为 `cleanup_feed_trace_files.py` 增加 `--cron-exit-codes` 与测试。
+
+## 2026-03-29 / Session-036
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-062`：`chunk_context_batch` 新增 `cache_reset=1`，可重置缓存统计并清空缓存项。
+  - 服务层新增 `reset_chunk_context_batch_cache_stats(clear_cache_entries=True)`。
+  - API 合约、服务单测、Postgres 集成测试全部补齐。
+- 验证：
+  - `python3 -m unittest tests/test_api_contract.py tests/test_service_cache.py -v` 通过（26/26）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（23/23）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（87/87）。
+- 变更文件：
+  - `server/app.py`
+  - `server/service.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - random 插位首条约束开关
+  - feed trace 清理脚本 cron 退出码
+  - cleanup_import_error_reports summary-only 输出
+- 下一位接手第一步：
+  - 执行 `NOW-063`，先在 feed random 插位上增加 “never first” 强约束参数与测试。
+
+## 2026-03-29 / Session-035
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-061`：`replay_memory_feed.py` 增加 `--jsonl-output`，按场景写 JSONL。
+  - 新增单测 `test_write_jsonl`，以及 Postgres 集成测试 `test_replay_memory_feed_script_jsonl_output`。
+  - README / server README 示例同步增加 JSONL 输出命令。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py -v` 通过（4/4）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（22/22）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（84/84）。
+- 变更文件：
+  - `scripts/replay_memory_feed.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - chunk_context_batch cache_stats 重置接口
+  - random 插位首条约束开关
+  - feed trace 清理脚本 cron 退出码
+- 下一位接手第一步：
+  - 执行 `NOW-062`，先在 service 增加 cache stats reset 方法并挂到 API 开关。
+
+## 2026-03-29 / Session-034
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-060`：新增 `scripts/compare_auto_tag_rule_versions.py`，支持 base/target 版本命中率回归对比。
+  - 新增单测 `tests/test_compare_auto_tag_rule_versions.py`（核心统计逻辑）。
+  - 新增 Postgres 集成测试 `test_compare_auto_tag_rule_versions_script`。
+  - README 增补版本对比脚本用法。
+- 验证：
+  - `python3 -m unittest tests/test_compare_auto_tag_rule_versions.py -v` 通过（2/2）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（21/21）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（82/82）。
+- 变更文件：
+  - `scripts/compare_auto_tag_rule_versions.py`
+  - `tests/test_compare_auto_tag_rule_versions.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - memory replay JSONL 离线分析输出
+  - chunk_context_batch cache_stats 重置接口
+  - random 插位首条约束开关
+- 下一位接手第一步：
+  - 执行 `NOW-061`，先为 `replay_memory_feed.py` 增加 `--jsonl-output` 与测试。
+
+## 2026-03-29 / Session-033
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-059`：新增 `docs/ops/feed_trace_cleanup_scheduler.md`。
+  - 提供 cron 与 systemd timer 双方案，覆盖脚本、定时策略、验证与排障。
+  - README 补充调度文档入口，方便直接落地。
+- 验证：
+  - 文档任务，无代码逻辑变更；基线测试维持通过（79/79）。
+- 变更文件：
+  - `docs/ops/feed_trace_cleanup_scheduler.md`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - auto-tag 版本切换命中率回归对比
+  - memory replay JSONL 离线分析输出
+  - chunk_context_batch cache_stats 重置接口
+- 下一位接手第一步：
+  - 执行 `NOW-060`，先产出 auto-tag 版本对比脚本（同一书同一 limit 的规则命中差异）。
+
+## 2026-03-29 / Session-032
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-058`：`cleanup_import_error_reports.py` 新增 `--cron-exit-codes`。
+  - 增加退出码约定：`0`（正常）、`3`（dry-run 发现待清理）、`4`（执行后仍有未处理候选）。
+  - 新增单测覆盖退出码逻辑（`determine_exit_code`）。
+- 验证：
+  - `python3 -m unittest tests/test_cleanup_import_error_reports.py -v` 通过（7/7）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（79/79）。
+- 变更文件：
+  - `scripts/cleanup_import_error_reports.py`
+  - `tests/test_cleanup_import_error_reports.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace 清理调度文档
+  - auto-tag 版本切换命中率回归对比
+  - memory replay JSONL 离线分析输出
+- 下一位接手第一步：
+  - 执行 `NOW-059`，先新增 `docs/ops/feed_trace_cleanup_scheduler.md`（cron + systemd）。
+
+## 2026-03-29 / Session-031
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-056`：feed 支持 `memory_position=top|interval|random`，并新增 `memory_seed` 复现随机插位。
+  - 完成 `NOW-057`：`chunk_context_batch` 增加 `cache_stats` 可选响应，返回命中/过期/回源计数与命中率。
+  - `replay_memory_feed.py` 同步改为显式传递 `memory_position`，保证回放语义稳定。
+  - 扩展测试覆盖：API 合约、服务缓存统计、Postgres 随机插位与缓存指标场景。
+- 验证：
+  - `python3 -m unittest tests/test_api_contract.py tests/test_service_cache.py tests/test_replay_memory_feed.py -v` 通过（27/27）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（20/20）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（75/75）。
+- 变更文件：
+  - `server/app.py`
+  - `server/service.py`
+  - `scripts/replay_memory_feed.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_service_cache.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - import 错误报告清理脚本 cron 退出码约定
+  - feed trace 清理调度文档
+  - auto-tag 版本切换命中率回归对比
+- 下一位接手第一步：
+  - 执行 `NOW-058`，先为 `cleanup_import_error_reports.py` 增加 `--cron-exit-codes` 与对应测试。
+
+## 2026-03-29 / Session-030
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-055`：新增真实回忆帖样例种子 `migrations/0008_seed_memory_posts_realistic.sql`（多文案 + 多状态）。
+  - 新增回放脚本 `scripts/replay_memory_feed.py`，支持 `top/1/3...` 多场景插流回放并输出 timeline。
+  - `scripts/dev_postgres.sh` 与 `migrations/README.md` 接入 `0008`。
+  - 增加测试：`tests/test_replay_memory_feed.py`（解析/摘要）与 `tests/test_postgres_integration.py::test_replay_memory_feed_script`（实库回放）。
+- 验证：
+  - `python3 -m unittest tests/test_replay_memory_feed.py -v` 通过（3/3）。
+  - `python3 -m unittest tests/test_postgres_integration.py -v` 通过（18/18）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（69/69）。
+- 变更文件：
+  - `migrations/0008_seed_memory_posts_realistic.sql`
+  - `migrations/README.md`
+  - `scripts/dev_postgres.sh`
+  - `scripts/replay_memory_feed.py`
+  - `tests/test_replay_memory_feed.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - with_memory 插位策略参数化
+  - chunk_context_batch 缓存命中率指标
+  - import 错误报告清理脚本 cron 退出码约定
+- 下一位接手第一步：
+  - 执行 `NOW-056`，先在 feed 增加 `memory_position` 参数（`top|interval|random`）并补合约测试。
+
+## 2026-03-29 / Session-029
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-054`：auto-tag 规则配置升级为版本化结构（`rule_versions + active_rule_version`）。
+  - `auto_tag_chunks.py` / `report_auto_tag_rule_hits.py` 增加 `--rule-version` 参数，实现按版本运行（支持回滚验证）。
+  - 新增回滚脚本 `scripts/set_auto_tag_rule_version.py`，支持 `--dry-run` 与备份写入。
+  - 新增测试 `tests/test_set_auto_tag_rule_version.py`，并扩展 `tests/test_auto_tag_rules.py` 覆盖版本选择与回退行为。
+- 验证：
+  - `python3 -m unittest tests/test_auto_tag_rules.py tests/test_set_auto_tag_rule_version.py -v` 通过（8/8）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（65/65）。
+- 变更文件：
+  - `config/auto_tag_rules.json`
+  - `scripts/auto_tag_chunks.py`
+  - `scripts/report_auto_tag_rule_hits.py`
+  - `scripts/set_auto_tag_rule_version.py`
+  - `tests/test_auto_tag_rules.py`
+  - `tests/test_set_auto_tag_rule_version.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - memory posts 真实样例种子与回放脚本
+  - with_memory 插位策略参数化
+  - chunk_context_batch 缓存命中率指标
+- 下一位接手第一步：
+  - 执行 `NOW-055`，先补充 memory post 真实样例 seed 与离线回放脚本。
+
+## 2026-03-29 / Session-028
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-053`：新增 feed trace 清理归档脚本 `scripts/cleanup_feed_trace_files.py`（支持 `--dry-run` / `--delete-only` / `--older-than-days`）。
+  - 新增单测 `tests/test_cleanup_feed_trace_files.py`，覆盖归档、删除、演练三种模式。
+  - 同步更新 API/README/服务文档中的 trace 文件生命周期说明。
+- 验证：
+  - `python3 -m unittest tests/test_cleanup_feed_trace_files.py -v` 通过（3/3）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（60/60）。
+- 变更文件：
+  - `scripts/cleanup_feed_trace_files.py`
+  - `tests/test_cleanup_feed_trace_files.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - auto-tag 规则配置版本化与回滚
+  - memory posts 真实样例种子与回放脚本
+  - with_memory 插位策略参数化
+- 下一位接手第一步：
+  - 执行 `NOW-054`，先为 `config/auto_tag_rules.json` 增加 `version` 字段与回滚入口。
+
+## 2026-03-29 / Session-027
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-051`：feed 支持 `memory_every` 频控参数（每 N 条普通内容插 1 条回忆帖，首屏生效，默认行为兼容旧逻辑）。
+  - 完成 `NOW-052`：`chunk_context_batch` 增加服务层短 TTL 缓存（默认 5 秒，GET/POST 共用）。
+  - 新增服务层缓存单测 `tests/test_service_cache.py`，覆盖命中、过期、关闭缓存三种场景。
+  - 补充 API 合约与 Postgres 集成测试，覆盖 `memory_every` 参数校验与插流位置。
+- 验证：
+  - `python3 -m unittest tests/test_service_cache.py -v` 通过（3/3）。
+  - `python3 -m unittest tests/test_api_contract.py -v` 通过（17/17）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（57/57）。
+  - `python3 -m py_compile server/app.py server/service.py tests/test_api_contract.py tests/test_postgres_integration.py tests/test_service_cache.py` 通过。
+- 变更文件：
+  - `server/app.py`
+  - `server/service.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `tests/test_service_cache.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - trace 文件自动清理策略
+  - auto-tag 规则配置版本化与回滚
+  - memory posts 真实样例种子与插流回放脚本
+- 下一位接手第一步：
+  - 执行 `NOW-053`，先为 `logs/feed_trace/*.json` 增加统一清理脚本和 dry-run 模式。
+
+## 2026-03-29 / Session-026
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-049`：`report_reading_progress_health.py` 增加 `--csv-output` 导出能力。
+  - 补充集成测试，验证 CSV 文件生成与字段内容。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（50/50）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `scripts/report_reading_progress_health.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - memory posts 种子与验收
+  - with_memory 频控参数
+  - chunk_context_batch 缓存层
+- 下一位接手第一步：
+  - 执行 `NOW-050`，先新增 memory posts seed 与本地验收脚本。
+
+## 2026-03-29 / Session-025
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-048`：auto-tag 规则支持从 `config/auto_tag_rules.json` 热加载。
+  - 新增规则加载单测 `tests/test_auto_tag_rules.py`。
+  - 规则命中率脚本同步支持配置文件输入。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（50/50）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `scripts/auto_tag_chunks.py`
+  - `scripts/report_auto_tag_rule_hits.py`
+  - `config/auto_tag_rules.json`
+  - `tests/test_auto_tag_rules.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - reading_progress 健康报告 CSV
+  - memory posts 种子与验收
+  - with_memory 频控参数
+- 下一位接手第一步：
+  - 执行 `NOW-049`，先为健康报告脚本加 `--csv-output` 参数。
+
+## 2026-03-29 / Session-024
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-046`：feed 支持 `trace_file=1` 请求级调试结果落盘。
+  - 完成 `NOW-047`：`chunk_context_batch` 增加 POST JSON 版本并补测试。
+  - 继续巩固 `NOW-045`：规则命中率分析脚本已接入测试链路。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（47/47）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - auto-tag 规则热更新配置
+  - reading_progress 健康报告 CSV
+  - memory posts 种子与验收
+- 下一位接手第一步：
+  - 执行 `NOW-048`，先把 auto-tag 规则从代码常量迁移到配置文件。
+
+## 2026-03-29 / Session-023
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-045`：新增 `scripts/report_auto_tag_rule_hits.py`（规则命中率分析）。
+  - 完成 `NOW-047`：`/v1/chunk_context_batch` 增加 POST JSON 版本。
+  - 同步完善 feed 回忆帖占位链路（`with_memory=1`）与相关测试。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（46/46）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `scripts/report_auto_tag_rule_hits.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed trace 请求级落盘
+  - auto-tag 规则热更新配置
+  - reading_progress 健康报告 CSV
+- 下一位接手第一步：
+  - 执行 `NOW-046`，先实现 trace 请求ID文件落盘（可开关）。
+
+## 2026-03-29 / Session-022
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-041`：新增 `/v1/chunk_context_batch` 批量预取接口（并保持输入顺序）。
+  - 完成 `NOW-042`：新增导入错误报告清理归档脚本 `scripts/cleanup_import_error_reports.py`。
+  - 完成 `NOW-043`：新增阅读进度健康检查脚本 `scripts/report_reading_progress_health.py`。
+  - 完成 `NOW-044`：feed 支持 `with_memory=1` 首屏注入回忆帖占位（最多 1 条）。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（43/43）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `scripts/cleanup_import_error_reports.py`
+  - `scripts/report_reading_progress_health.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_cleanup_import_error_reports.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - tag 规则命中率分析
+  - feed trace 请求级落盘
+  - chunk_context_batch POST JSON
+- 下一位接手第一步：
+  - 执行 `NOW-045`，先产出 auto-tag 规则命中率统计脚本和样例输出。
+
+## 2026-03-29 / Session-021
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-041`：新增 `/v1/chunk_context_batch`，支持批量上下文预取（并保留输入顺序）。
+  - 完成 `NOW-042`：新增 `scripts/cleanup_import_error_reports.py`，支持归档/删除/演练模式。
+  - 完成 `NOW-043`：新增 `scripts/report_reading_progress_health.py`，输出进度健康概览。
+  - 同步补充 API 文档、README 示例与测试用例。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（41/41）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `scripts/cleanup_import_error_reports.py`
+  - `scripts/report_reading_progress_health.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_cleanup_import_error_reports.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 回忆帖混排占位
+  - tag 规则命中率分析
+  - feed trace 请求级落盘
+- 下一位接手第一步：
+  - 执行 `NOW-044`，先在 feed 注入最小 memory post 占位项并加开关参数。
+
+## 2026-03-29 / Session-020
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-040`：`GET /v1/feed` 增加可选排序 trace（`trace=1` 返回 `ranking_trace`）。
+  - 扩展合约与 Postgres 集成测试，覆盖 trace 输出格式与来源字段。
+  - 更新 API 文档与服务使用示例。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（34/34）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - chunk_context 批量预取
+  - import 错误报告清理归档
+  - reading_progress 健康检查查询
+- 下一位接手第一步：
+  - 执行 `NOW-041`，先提供 `/v1/chunk_context_batch` 最小批量接口。
+
+## 2026-03-29 / Session-019
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-039`：新增规则版自动打标脚本 `scripts/auto_tag_chunks.py`。
+  - 增加 Postgres 集成测试覆盖自动打标脚本执行与写库结果。
+  - 更新文档入口，补充 auto-tag 运行命令。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（32/32）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `scripts/auto_tag_chunks.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed explain/trace 调试
+  - chunk_context 批量预取
+  - import 错误报告清理归档
+- 下一位接手第一步：
+  - 执行 `NOW-040`，先为 feed 返回项增加排序原因 trace 字段（可选开关）。
+
+## 2026-03-29 / Session-018
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-038`：新增 `reading_progress` 增量触发器迁移（`0006_reading_progress_trigger.sql`）。
+  - `scripts/dev_postgres.sh` 与 `migrations/README.md` 同步接入 `0006`。
+  - 新增集成测试：`section_complete` 写入后，`reading_progress` 自动更新（无需手动回填）。
+- 验证：
+  - `./scripts/dev_postgres.sh` 通过（含 0006）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（31/31）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `migrations/0006_reading_progress_trigger.sql`
+  - `migrations/README.md`
+  - `scripts/dev_postgres.sh`
+  - `tests/test_postgres_integration.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - chunk_tags 自动抽取占位脚本
+  - feed explain/trace 调试
+  - chunk_context 批量预取
+- 下一位接手第一步：
+  - 执行 `NOW-039`，先实现基于规则的 chunk_tags 自动抽取占位脚本。
+
+## 2026-03-29 / Session-017
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-037`：新增标签冷启动方案（`migrations/0005_seed_tags.sql` + `scripts/bootstrap_user_tags.py`）。
+  - `scripts/dev_postgres.sh` 增加 `0005_seed_tags.sql` 自动应用步骤。
+  - 增加集成测试：`bootstrap_user_tags.py` 可为新用户写入默认偏好。
+- 验证：
+  - `./scripts/dev_postgres.sh` 通过（含 0005）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（30/30）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `migrations/0005_seed_tags.sql`
+  - `migrations/README.md`
+  - `scripts/dev_postgres.sh`
+  - `scripts/bootstrap_user_tags.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - reading_progress 增量触发器
+  - chunk_tags 自动抽取占位脚本
+  - feed explain/trace 调试
+- 下一位接手第一步：
+  - 执行 `NOW-038`，先实现 interactions->reading_progress 的最小增量触发器。
+
+## 2026-03-29 / Session-016
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-036`：`scripts/import_book.py` 增加 DB 写入重试（指数退避）与结构化错误报告文件输出。
+  - 新增导入器单测覆盖重试与错误报告：`tests/test_import_book.py`。
+  - 实测失败场景：不存在文件时生成 `logs/import_errors/import_error_*.json`。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（29/29）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+  - `python3 scripts/import_book.py --input /tmp/not_exist_bookflow_demo.txt ...` 返回退出码 `1`，并生成错误报告。
+- 变更文件：
+  - `scripts/import_book.py`
+  - `tests/test_import_book.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 标签冷启动种子映射
+  - reading_progress 增量触发器
+  - chunk_tags 自动抽取占位脚本
+- 下一位接手第一步：
+  - 执行 `NOW-037`，先补标签种子与 `user_tag_profile` 冷启动权重脚本。
+
+## 2026-03-29 / Session-015
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-035`：新增 `GET /v1/chunk_context`，返回同书上一/下一切片导航信息。
+  - memory/postgres 双后端均支持 chunk 邻接查询。
+  - 扩展合约与集成测试：覆盖 chunk_context 正常路径与参数缺失路径。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（27/27）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 导入失败重试与错误报告
+  - 标签冷启动种子映射
+  - reading_progress 增量触发器
+- 下一位接手第一步：
+  - 执行 `NOW-036`，先为 import 失败案例生成标准化错误报告 JSON。
+
+## 2026-03-29 / Session-014
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-032`：feed 默认模式支持 `user_id` 偏好混排（`user_tag_profile × chunk_tags`）。
+  - 完成 `NOW-033`：`scripts/import_book.py` 增强 markdown/code block 边界清洗（fenced 与缩进代码块）。
+  - 完成 `NOW-034`：新增 `scripts/backfill_reading_progress.py`，支持从 interactions 回填 `reading_progress`。
+  - 新增与扩展测试：`tests/test_import_book.py`、Postgres 偏好排序与回填脚本集成测试。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（24/24）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+  - `python3 scripts/accept_import_feed.py --input examples/sample_import.txt --title "导入验收样例书-NOW033034" --book-type technical --database-url postgresql://bookflow:bookflow@127.0.0.1:55432/bookflow` 通过。
+  - `python3 scripts/backfill_reading_progress.py` 通过（affected_rows=1）。
+- 变更文件：
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `scripts/import_book.py`
+  - `scripts/backfill_reading_progress.py`
+  - `tests/test_api_contract.py`
+  - `tests/test_import_book.py`
+  - `tests/test_postgres_integration.py`
+  - `docs/specs/api.md`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed 深读上下文 API
+  - 导入失败重试与错误报告
+  - 标签冷启动种子映射
+- 下一位接手第一步：
+  - 执行 `NOW-035`，先定义并实现“当前 chunk 的 prev/next 导航接口”最小协议。
+
+## 2026-03-29 / Session-013
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-031`：新增拒绝事件落库（`migrations/0004_interaction_rejections.sql` + app/repository/service 链路）。
+  - 新增聚合脚本 `scripts/report_interaction_rejections.py`，支持按时间窗口输出拒绝原因分布。
+  - 扩展 Postgres 集成测试：校验无效 UUID 被拒绝后会写入 `interaction_rejections`。
+  - `scripts/dev_postgres.sh` 升级为自动应用 `0003 + 0004`。
+- 验证：
+  - `./scripts/dev_postgres.sh` 通过（含 0004）。
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（19/19）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+  - `python3 scripts/report_interaction_rejections.py --hours 24 --limit 5` 通过并返回拒绝样本。
+- 变更文件：
+  - `migrations/0004_interaction_rejections.sql`
+  - `migrations/README.md`
+  - `scripts/dev_postgres.sh`
+  - `scripts/report_interaction_rejections.py`
+  - `server/app.py`
+  - `server/repository.py`
+  - `server/service.py`
+  - `tests/test_postgres_integration.py`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - feed 标签偏好混排 v0
+  - import markdown/code 边界清洗
+  - reading_progress 回填脚本
+- 下一位接手第一步：
+  - 执行 `NOW-032`，先定义 `user_tag_profile` 参与 feed 混排的最小排序策略。
+
+## 2026-03-29 / Session-012
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-028`：新增 `docs/ops/metrics_refresh_scheduler.md`，提供 cron/systemd 双调度方案。
+  - 完成 `NOW-029`：扩展 `tests/test_postgres_integration.py`，补充 Postgres 下 feed 过滤与无效 UUID 入参场景。
+  - 完成 `NOW-030`：新增基线文件 `tests/fixtures/pipeline_template_baseline_v1.json` 并在 `tests/test_pipeline.py` 做自动比对。
+  - 保持导入闭环可复验：`scripts/accept_import_feed.py` 再次实测通过。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py' -v` 通过（19/19）。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+  - `python3 scripts/accept_import_feed.py --input examples/sample_import.txt --title "导入验收样例书-NOW030" --book-type technical --database-url postgresql://bookflow:bookflow@127.0.0.1:55432/bookflow` 通过。
+- 变更文件：
+  - `docs/ops/metrics_refresh_scheduler.md`
+  - `tests/test_postgres_integration.py`
+  - `tests/fixtures/pipeline_template_baseline_v1.json`
+  - `tests/test_pipeline.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - interactions 拒绝原因聚合查询脚本
+  - feed 标签偏好混排 v0
+  - import markdown/code 边界清洗
+- 下一位接手第一步：
+  - 执行 `NOW-031`，先产出 interactions 拒绝原因聚合 SQL/脚本并做样例输出。
+
+## 2026-03-29 / Session-011
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-025`：新增 `tests/test_postgres_integration.py`，覆盖 interactions 批量写入 + 幂等去重（Postgres 实库）。
+  - 完成 `NOW-026`：补充 pipeline 模板回归样本测试，验证 `general/fiction/technical` 输出差异。
+  - 完成 `NOW-027`：新增 `scripts/accept_import_feed.py`，自动执行 import->启动服务->`/v1/feed` 可见性验收。
+  - 完成实测闭环：`examples/sample_import.txt` 导入后，feed 命中新书切片 `3` 条。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（16/16）。
+  - `python3 scripts/accept_import_feed.py --input examples/sample_import.txt --title "导入验收样例书" --book-type technical --database-url postgresql://bookflow:bookflow@127.0.0.1:55432/bookflow` 通过。
+  - `python3 -m py_compile scripts/*.py server/*.py tests/*.py` 通过。
+- 变更文件：
+  - `tests/test_postgres_integration.py`
+  - `tests/test_pipeline.py`
+  - `scripts/accept_import_feed.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 指标物化视图定时调度落地与操作文档
+  - Postgres 模式 API 合约补测（更多边界场景）
+  - pipeline 模板回归基线数据文件化
+- 下一位接手第一步：
+  - 执行 `NOW-028`，先产出 cron/systemd 两种物化视图刷新方案与命令样例。
+
+## 2026-03-28 / Session-010
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-022`：`server/dao.py` 拆分为 `server/repository.py` + `server/service.py`。
+  - 完成 `NOW-023`：`interactions` 批量写入走单连接批处理路径。
+  - 完成 `NOW-024`：新增 `scripts/import_book.py`（文件->清洗->切片->入库）。
+  - 实测导入链路：`examples/sample_import.txt` 成功入库（book=1, chunks=3）。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（14/14）。
+  - `python3 scripts/import_book.py --dry-run` 正常输出。
+  - Postgres 实库校验导入结果：书籍与切片计数符合预期。
+- 变更文件：
+  - `server/repository.py`
+  - `server/service.py`
+  - `server/app.py`
+  - `scripts/import_book.py`
+  - `examples/sample_import.txt`
+  - `README.md`
+  - `server/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 批量写入 Postgres 集成压测
+  - 模板参数回归样本集
+  - import->feed 自动验收脚本
+- 下一位接手第一步：
+  - 执行 `NOW-025`，先补 Postgres 批量写入集成测试。
+
+## 2026-03-28 / Session-009
+- 负责人：AI 协作代理
+- 完成：
+  - 完成 `NOW-019`：新增 `migrations/0003_metrics_materialized.sql` 与 `scripts/refresh_metrics.py`。
+  - 完成 `NOW-020`：`pipeline` 支持 `defaults + templates(book_type)` 配置选择。
+  - 完成 `NOW-021`：新增 `tests/test_api_contract.py`（接口合约自动化）。
+  - 全量测试通过：`14/14`。
+- 变更文件：
+  - `migrations/0003_metrics_materialized.sql`
+  - `scripts/refresh_metrics.py`
+  - `scripts/pipeline.py`
+  - `config/pipeline.json`
+  - `tests/test_pipeline.py`
+  - `tests/test_api_contract.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+  - `docs/specs/README.md`
+  - `migrations/README.md`
+  - `README.md`
+  - `server/README.md`
+- 未完成：
+  - DAO 拆层（repository/service）
+  - interactions 批量写入优化
+  - book import CLI
+- 下一位接手第一步：
+  - 执行 `NOW-022`，先拆分 `server/dao.py` 的层次结构并保持接口兼容。
+
+## 2026-03-28 / Session-008
+- 负责人：AI 协作代理
+- 完成：
+  - 新增对话归档：`docs/CONVERSATION_LOG_2026-03-28.md`。
+  - 将对话归档接入接管链路：`docs/START_HERE.md`、`docs/STATE.json`。
+- 变更文件：
+  - `docs/CONVERSATION_LOG_2026-03-28.md`
+  - `docs/START_HERE.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 下一位接手第一步：
+  - 先读 `docs/CONVERSATION_LOG_2026-03-28.md`，再按 NOW 任务继续。
+
+## 2026-03-28 / Session-007
+- 负责人：AI 协作代理
+- 完成：
+  - 安装 `psycopg` 并拉起本地 Postgres 容器（`ghcr.io/cloudnative-pg/postgresql:16.6`）。
+  - 修复迁移问题：`event_date` 生成列表达式改为固定 UTC 版本。
+  - 新增开发 seed：`migrations/0002_seed_dev.sql`。
+  - 打通 Postgres 端到端：`/health` 返回 `backend=postgres`，`/v1/feed` 读库成功，`/v1/interactions` 写库成功。
+  - 新增一键脚本：`scripts/dev_postgres.sh`。
+- 验证：
+  - 迁移执行成功（`0001_init.sql`）。
+  - seed 执行成功（`0002_seed_dev.sql`）。
+  - DB 校验：`session_id='s_pg_004'` 的事件计数为 `1`。
+  - 单测通过：`python3 -m unittest discover -s tests -p 'test_*.py'`（7/7）。
+- 变更文件：
+  - `docs/specs/schema.sql`
+  - `migrations/0001_init.sql`
+  - `migrations/0002_seed_dev.sql`
+  - `migrations/README.md`
+  - `server/dao.py`
+  - `server/app.py`
+  - `server/README.md`
+  - `scripts/dev_postgres.sh`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - metrics 物化视图与刷新任务
+  - pipeline 多模板阈值配置
+  - API 合约测试自动化
+- 下一位接手第一步：
+  - 执行 `NOW-019`，先将 `metrics.sql` 落成物化视图并提供刷新脚本。
+
+## 2026-03-28 / Session-006
+- 负责人：AI 协作代理
+- 完成：
+  - 新增 `server/dao.py`，实现 MemoryDAO + PostgresDAO 双后端。
+  - 改造 `server/app.py`：feed/interactions 统一走 DAO，`/health` 返回当前 backend。
+  - 补充 Postgres 使用说明（`server/README.md`）。
+  - 完成编译与烟测（内存模式可启动，接口返回正常）。
+- 验证：
+  - `python3 -m py_compile scripts/pipeline.py server/app.py server/dao.py` 通过。
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（7/7）。
+  - `GET /health` 返回 `backend=memory`（未配置 DB 时）。
+- 变更文件：
+  - `server/dao.py`
+  - `server/app.py`
+  - `server/README.md`
+  - `server/__init__.py`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 在真实 Postgres 上验证 `feed` 读库与 `interactions` 写库
+  - DAO 覆盖范围扩展到更多表
+  - 将 NOW 任务验收闭环（`NOW-016~018`）
+- 下一位接手第一步：
+  - 配置 `DATABASE_URL` + `psycopg` 后，执行 `NOW-016` 的端到端数据库验收。
+
+## 2026-03-28 / Session-005
+- 负责人：AI 协作代理
+- 完成：
+  - 产出 `docs/specs/metrics.sql`（section_complete/backtrack/confusion 等看板 SQL）。
+  - `pipeline.py` 支持 `--config`，读取 `config/pipeline.json`。
+  - pipeline 输出新增稳定化 `render_reason` 和聚合统计 `stats`。
+  - 新增测试覆盖配置加载与统计输出（总计 7 条用例通过）。
+- 变更文件：
+  - `docs/specs/metrics.sql`
+  - `scripts/pipeline.py`
+  - `config/pipeline.json`
+  - `tests/test_pipeline.py`
+  - `docs/specs/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+  - `README.md`
+  - `examples/README.md`
+- 未完成：
+  - server 接 Postgres 持久化层
+  - DAO 最小实现
+  - feed 真实数据读取链路
+- 下一位接手第一步：
+  - 执行 `NOW-016`，先为 `server/app.py` 增加 Postgres 连接与 interactions 入库。
+
+## 2026-03-28 / Session-004
+- 负责人：AI 协作代理
+- 完成：
+  - 完成迁移版本化：`migrations/0001_init.sql`、`migrations/0001_rollback.sql`、`migrations/README.md`。
+  - 完成 API 路由骨架：`server/app.py` + `server/README.md`（支持 `/health`、`/v1/feed`、`/v1/interactions`）。
+  - 完成 pipeline 自动化测试：`tests/test_pipeline.py`（5 条通过）。
+  - 修复 pipeline 超长单段未拆分问题。
+- 验证：
+  - `python3 -m unittest discover -s tests -p 'test_*.py'` 通过（5/5）。
+  - 启动服务后 `GET /health`、`GET /v1/feed` 正常返回 JSON。
+  - `POST /v1/interactions` 对合法时间戳事件返回 `accepted`。
+- 变更文件：
+  - `migrations/0001_init.sql`
+  - `migrations/0001_rollback.sql`
+  - `migrations/README.md`
+  - `server/app.py`
+  - `server/README.md`
+  - `scripts/__init__.py`
+  - `scripts/pipeline.py`
+  - `tests/test_pipeline.py`
+  - `README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - `docs/specs/metrics.sql`
+  - pipeline 阈值配置化
+  - server 接持久化层
+- 下一位接手第一步：
+  - 执行 `NOW-010`，先产出 `docs/specs/metrics.sql`。
+
+## 2026-03-28 / Session-003
+- 负责人：AI 协作代理
+- 完成：
+  - 产出 `docs/specs/schema.sql`（books/chunks/interactions/progress 等核心表）。
+  - 产出 `docs/specs/api.md`（`GET /v1/feed` + `POST /v1/interactions`）。
+  - 实现最小离线 CLI：`scripts/pipeline.py`。
+  - 新增样例：`examples/sample_book.json` 与 `examples/sample_output.json`。
+  - 已运行 CLI 验证：成功输出 2 个 chunk。
+- 变更文件：
+  - `README.md`
+  - `docs/specs/schema.sql`
+  - `docs/specs/api.md`
+  - `scripts/pipeline.py`
+  - `examples/README.md`
+  - `examples/sample_book.json`
+  - `examples/sample_output.json`
+  - `docs/specs/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - 迁移版本文件（`migrations/0001_init.sql`）
+  - 路由骨架代码
+  - pipeline 自动化测试
+- 下一位接手第一步：
+  - 执行 `NOW-007`，将 `docs/specs/schema.sql` 拆为 `migrations/0001_init.sql`。
+
+## 2026-03-28 / Session-002
+- 负责人：AI 协作代理
+- 完成：
+  - 产出 `docs/specs/chunking.md`（小节优先切片器完整规格）。
+  - 产出 `docs/specs/render_mode.md`（reflow/crop 判定与回退规格）。
+  - 产出 `docs/specs/events.md`（核心事件字典与聚合口径）。
+  - 更新看板与状态，推进到 `NOW-004~006`。
+- 变更文件：
+  - `docs/specs/chunking.md`
+  - `docs/specs/render_mode.md`
+  - `docs/specs/events.md`
+  - `docs/specs/README.md`
+  - `docs/TASK_BOARD.md`
+  - `docs/STATE.json`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - `docs/specs/schema.sql`
+  - `docs/specs/api.md`
+  - 最小离线 pipeline 代码骨架
+- 下一位接手第一步：
+  - 执行 `NOW-004`，先完成 `schema.sql` 并对齐 `events.md` 字段。
+
+## 2026-03-28 / Session-001
+- 负责人：AI 协作代理
+- 完成：
+  - 将 PRD 调整为 `Section-First` 版本（完整小节优先、连续深读导向）。
+  - 加入 `reflow/crop` 混合渲染与 source anchor 设计。
+  - 新增“看不懂反馈（confusion）”事件。
+  - 建立可中断续作机制（START_HERE / STATE / TASK_BOARD / DECISIONS）。
+- 变更文件：
+  - `docs/PRD.zh-CN.md`
+  - `README.md`
+  - `docs/START_HERE.md`
+  - `docs/STATE.json`
+  - `docs/TASK_BOARD.md`
+  - `docs/DECISIONS.md`
+  - `docs/SESSION_LOG.md`
+- 未完成：
+  - `docs/specs/chunking.md`
+  - `docs/specs/render_mode.md`
+  - `docs/specs/events.md`
+- 下一位接手第一步：
+  - 执行 `NOW-001`，先产出小节优先切片规则文档，再更新 `STATE.json` 和本日志。

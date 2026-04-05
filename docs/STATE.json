@@ -1,0 +1,35 @@
+{
+  "project": "BookFlow",
+  "updated_at": "2026-03-31T00:55:00+08:00",
+  "phase": "v0 clean rebuild completed + now-501 validated on 2 real PDFs",
+  "mode": "build_v0_only",
+  "north_star": "每周完成小节数（section_complete）",
+  "current_focus": [
+    "输出 v0.1.0 验收说明（能力边界与限制）",
+    "技术书目录从粗粒度3段细化到小节级",
+    "继续修复真实使用中的主流程问题"
+  ],
+  "now_task_ids": [
+    "NOW-502",
+    "NOW-503",
+    "NOW-504"
+  ],
+  "blocked": [],
+  "risks": [
+    "无目录 PDF 仍需人工标注",
+    "长章节 PDF 暂不支持 Range",
+    "重物化会替换旧 chunk_id 对应关系"
+  ],
+  "must_read": [
+    "README.md",
+    "server/app.py",
+    "scripts/import_book.py",
+    "frontend/index.html",
+    "frontend/reader.html",
+    "frontend/book.html",
+    "frontend/toc.html",
+    "scripts/pdf_sectioning.py",
+    "docs/STATE.json",
+    "docs/TASK_BOARD.md"
+  ]
+}

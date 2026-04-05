@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BookFlow Book Mosaic</title>
+  <link rel="stylesheet" href="/app/styles.css">
+</head>
+<body>
+  <main class="page stack">
+    <section class="panel topbar">
+      <div class="row spread">
+        <div>
+          <h1>书籍拼图</h1>
+          <p>已完成的小节点亮，未读保持灰色，帮助你看见阅读进度。</p>
+        </div>
+        <a class="btn subtle link" href="/app">返回 Feed</a>
+      </div>
+
+      <div class="row">
+        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
+        <input id="userInput" class="input" placeholder="user_id (可选)" style="min-width:260px;">
+        <button id="refreshBtn" class="btn primary" type="button">刷新拼图</button>
+      </div>
+
+      <div class="row hint">
+        <span>book_id:</span>
+        <code id="bookIdEcho"></code>
+      </div>
+
+      <div id="notice" class="notice">准备加载拼图...</div>
+    </section>
+
+    <section id="bookPanel" class="panel reader-card" hidden>
+      <h2 id="bookTitle" class="reader-title"></h2>
+      <div class="mosaic-summary">
+        <div id="summaryLine" class="hint"></div>
+        <div class="progress-bar"><span id="progressFill" style="width:0%"></span></div>
+      </div>
+      <div id="grid" class="mosaic-grid"></div>
+    </section>
+  </main>
+
+  <script src="/app/app.js"></script>
+  <script>
+    (() => {
+      const App = window.BookFlowApp;
+      const query = App.parseQuery();
+
+      const state = {
+        token: App.getStoredToken(),
+        userId: query.user_id || App.getStoredUserId(),
+        bookId: query.book_id || "",
+      };
+
+      const tokenInput = document.getElementById("tokenInput");
+      const userInput = document.getElementById("userInput");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const bookIdEcho = document.getElementById("bookIdEcho");
+      const noticeEl = document.getElementById("notice");
+      const bookPanel = document.getElementById("bookPanel");
+      const bookTitleEl = document.getElementById("bookTitle");
+      const summaryLine = document.getElementById("summaryLine");
+      const progressFill = document.getElementById("progressFill");
+      const gridEl = document.getElementById("grid");
+
+      tokenInput.value = state.token;
+      userInput.value = state.userId || "";
+      bookIdEcho.textContent = state.bookId || "(missing)";
+
+      function setNotice(text, isError = false) {
+        noticeEl.className = isError ? "notice error" : "notice";
+        noticeEl.textContent = text;
+      }
+
+      function updateUrl() {
+        const params = new URLSearchParams();
+        params.set("book_id", state.bookId || "");
+        if (state.userId) {
+          params.set("user_id", state.userId);
+        }
+        window.history.replaceState({}, "", `/app/book?${params.toString()}`);
+      }
+
+      function makeReaderUrl(chunkId) {
+        const params = new URLSearchParams();
+        params.set("book_id", state.bookId || "");
+        params.set("chunk_id", chunkId || "");
+        if (state.userId) {
+          params.set("user_id", state.userId);
+        }
+        return `/app/reader?${params.toString()}`;
+      }
+
+      async function loadMosaic() {
+        if (!state.bookId) {
+          setNotice("缺少 book_id，请从 Feed 点击书名进入。", true);
+          return;
+        }
+        setNotice("正在加载拼图...", false);
+        try {
+          const params = new URLSearchParams();
+          params.set("book_id", state.bookId);
+          params.set("compact", "1");
+          if (state.userId) {
+            params.set("user_id", state.userId);
+          }
+
+          const payload = await App.apiFetch(`/v1/book_mosaic?${params.toString()}`, { token: state.token });
+          const summary = payload.summary || {};
+          const total = Number(summary.total_chunks || 0);
+          const read = Number(summary.read_chunks || 0);
+          const rate = total > 0 ? Math.round((read / total) * 1000) / 10 : 0;
+
+          bookTitleEl.textContent = payload.book_title || "未知书籍";
+          summaryLine.textContent = `已完成 ${read}/${total} 小节 · 完成率 ${rate}%`;
+          progressFill.style.width = `${Math.max(0, Math.min(100, rate))}%`;
+
+          const tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
+          gridEl.innerHTML = tiles.map((tile) => {
+            const stateClass = tile.state === "read" ? "read" : "unread";
+            const idx = Number(tile.global_index || 0);
+            const title = App.escapeHtml(tile.chunk_title || "(无标题)");
+            const section = App.escapeHtml(tile.section_id || "-");
+            const href = makeReaderUrl(tile.chunk_id || "");
+            return `
+              <a class="mosaic-tile ${stateClass}" href="${href}">
+                <h3>#${idx} ${title}</h3>
+                <p>${section}</p>
+                <p>${stateClass === "read" ? "已完成" : "未完成"}</p>
+              </a>
+            `;
+          }).join("");
+
+          if (!tiles.length) {
+            gridEl.innerHTML = '<div class="notice">这本书暂时还没有章节切片。</div>';
+          }
+
+          bookPanel.hidden = false;
+          setNotice("加载完成。", false);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "加载失败";
+          setNotice(`加载失败：${msg}`, true);
+          bookPanel.hidden = true;
+        }
+      }
+
+      refreshBtn.addEventListener("click", () => {
+        const cfg = App.saveConfig(tokenInput.value, userInput.value);
+        state.token = cfg.token;
+        state.userId = cfg.userId || App.getStoredUserId();
+        userInput.value = state.userId || "";
+        updateUrl();
+        loadMosaic();
+      });
+
+      updateUrl();
+      loadMosaic();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "arms": [
+    {
+      "arm": "A_top",
+      "memory_position": "top"
+    },
+    {
+      "arm": "B_interval_2",
+      "memory_position": "interval",
+      "memory_every": 2
+    },
+    {
+      "arm": "C_random_2",
+      "memory_position": "random",
+      "memory_every": 2,
+      "memory_seed": 11,
+      "memory_random_never_first": true
+    }
+  ]
+}

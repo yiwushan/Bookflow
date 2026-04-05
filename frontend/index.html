@@ -1,0 +1,544 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BookFlow Feed</title>
+  <link rel="stylesheet" href="/app/styles.css">
+</head>
+<body>
+  <main class="page">
+    <section class="panel topbar">
+      <div class="row spread">
+        <div>
+          <h1>BookFlow 信息流 MVP</h1>
+          <p>双列卡片流：上封面，下标题。点击卡片进入章节原文 PDF 阅读。</p>
+        </div>
+        <div class="row">
+          <a class="btn subtle link" href="/app/toc">目录标注台</a>
+        </div>
+      </div>
+
+      <div class="row">
+        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
+        <input id="userInput" class="input" placeholder="user_id (可选)" style="min-width:260px;">
+        <label class="hint"><input id="memorySwitch" type="checkbox"> 混入回忆卡</label>
+        <button id="refreshBtn" class="btn primary" type="button">刷新</button>
+      </div>
+
+      <div class="row">
+        <input id="exportDirInput" class="input" placeholder="用户导出目录" style="min-width:300px;">
+        <button id="exportBtn" class="btn subtle" type="button">导出用户数据</button>
+        <button id="booksBtn" class="btn subtle" type="button">查看书库数量</button>
+      </div>
+
+      <div class="row">
+        <input id="importDirInput" class="input" placeholder="图书目录路径（本机）" style="min-width:320px;">
+        <label class="hint"><input id="importRecursiveSwitch" type="checkbox" checked> 递归子目录</label>
+        <select id="importStorageSelect" class="select" style="min-width:140px;">
+          <option value="on_demand">即时读取</option>
+          <option value="precut">预切片</option>
+        </select>
+        <button id="importBtn" class="btn primary" type="button">导入图书</button>
+      </div>
+      <div id="importProgress" class="notice" hidden></div>
+
+      <div id="notice" class="notice">准备加载...</div>
+    </section>
+
+    <section id="feedGrid" class="feed-grid"></section>
+
+    <section class="row" style="margin-top:12px; justify-content:center;">
+      <button id="moreBtn" class="btn subtle" type="button">加载更多</button>
+    </section>
+  </main>
+
+  <script src="/app/app.js"></script>
+  <script>
+    (() => {
+      const App = window.BookFlowApp;
+      const FEED_STATE_KEY = "bookflow.feed.state.v1";
+      const state = {
+        token: App.getStoredToken(),
+        userId: App.getStoredUserId(),
+        withMemory: false,
+        exportDir: window.localStorage.getItem("bookflow.user_export_dir") || "data/users/export",
+        importDir: window.localStorage.getItem("bookflow.import_dir") || "data/books/inbox",
+        importRecursive: String(window.localStorage.getItem("bookflow.import_recursive") || "1") !== "0",
+        importStorage: window.localStorage.getItem("bookflow.import_storage") || "on_demand",
+        cursor: null,
+        items: [],
+        loading: false,
+      };
+      let saveRaf = 0;
+
+      const tokenInput = document.getElementById("tokenInput");
+      const userInput = document.getElementById("userInput");
+      const memorySwitch = document.getElementById("memorySwitch");
+      const exportDirInput = document.getElementById("exportDirInput");
+      const exportBtn = document.getElementById("exportBtn");
+      const booksBtn = document.getElementById("booksBtn");
+      const importDirInput = document.getElementById("importDirInput");
+      const importRecursiveSwitch = document.getElementById("importRecursiveSwitch");
+      const importStorageSelect = document.getElementById("importStorageSelect");
+      const importBtn = document.getElementById("importBtn");
+      const importProgressEl = document.getElementById("importProgress");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const moreBtn = document.getElementById("moreBtn");
+      const noticeEl = document.getElementById("notice");
+      const feedGrid = document.getElementById("feedGrid");
+
+      tokenInput.value = state.token;
+      userInput.value = state.userId || "";
+      exportDirInput.value = state.exportDir || "data/users/export";
+      importDirInput.value = state.importDir || "data/books/inbox";
+      importRecursiveSwitch.checked = !!state.importRecursive;
+      importStorageSelect.value = state.importStorage || "on_demand";
+
+      function setNotice(text, isError = false) {
+        noticeEl.className = isError ? "notice error" : "notice";
+        noticeEl.textContent = text;
+      }
+
+      function setImportProgress(text, isError = false, hidden = false) {
+        if (hidden) {
+          importProgressEl.hidden = true;
+          importProgressEl.textContent = "";
+          importProgressEl.className = "notice";
+          return;
+        }
+        importProgressEl.hidden = false;
+        importProgressEl.className = isError ? "notice error" : "notice";
+        importProgressEl.textContent = text;
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => window.setTimeout(resolve, ms));
+      }
+
+      function saveFeedState() {
+        try {
+          const payload = {
+            token: state.token || "",
+            userId: state.userId || "",
+            withMemory: !!state.withMemory,
+            cursor: state.cursor || null,
+            items: Array.isArray(state.items) ? state.items : [],
+            scrollY: Math.max(0, Math.trunc(window.scrollY || 0)),
+            savedAt: Date.now(),
+          };
+          window.sessionStorage.setItem(FEED_STATE_KEY, JSON.stringify(payload));
+        } catch (err) {
+          void err;
+        }
+      }
+
+      function scheduleSaveFeedState() {
+        if (saveRaf) {
+          return;
+        }
+        saveRaf = window.requestAnimationFrame(() => {
+          saveRaf = 0;
+          saveFeedState();
+        });
+      }
+
+      function restoreFeedState(options = {}) {
+        const keepScroll = !!options.keepScroll;
+        const silent = !!options.silent;
+        try {
+          const raw = window.sessionStorage.getItem(FEED_STATE_KEY);
+          if (!raw) {
+            return false;
+          }
+          const payload = JSON.parse(raw);
+          if (!payload || typeof payload !== "object") {
+            return false;
+          }
+          const token = String(payload.token || "");
+          const userId = String(payload.userId || "");
+          if (token && token !== String(state.token || "")) {
+            return false;
+          }
+          if (userId && userId !== String(state.userId || "")) {
+            return false;
+          }
+          const items = Array.isArray(payload.items) ? payload.items : [];
+          if (!items.length) {
+            return false;
+          }
+
+          state.items = items;
+          state.cursor = String(payload.cursor || "").trim() || null;
+          state.withMemory = !!payload.withMemory;
+          memorySwitch.checked = state.withMemory;
+          renderFeed();
+          moreBtn.hidden = !state.cursor;
+
+          const targetY = Math.max(0, Math.trunc(Number(payload.scrollY || 0) || 0));
+          if (!keepScroll) {
+            window.requestAnimationFrame(() => {
+              window.scrollTo(0, targetY);
+            });
+          }
+          if (!silent) {
+            setNotice(`已恢复 ${state.items.length} 条，回到上次浏览位置。`, false);
+          }
+          return true;
+        } catch (err) {
+          void err;
+          return false;
+        }
+      }
+
+      function readerUrl(item) {
+        const params = new URLSearchParams();
+        params.set("book_id", item.book_id || "");
+        params.set("chunk_id", item.chunk_id || "");
+        if (state.userId) {
+          params.set("user_id", state.userId);
+        }
+        return `/app/reader?${params.toString()}`;
+      }
+
+      function bookUrl(item) {
+        const params = new URLSearchParams();
+        params.set("book_id", item.book_id || "");
+        if (state.userId) {
+          params.set("user_id", state.userId);
+        }
+        return `/app/book?${params.toString()}`;
+      }
+
+      function coverUrl(item) {
+        const params = new URLSearchParams();
+        params.set("book_id", item.book_id || "");
+        params.set("chunk_id", item.chunk_id || "");
+        params.set("token", state.token || "local-dev-token");
+        return `/v1/chunk_cover?${params.toString()}`;
+      }
+
+      function renderFeed() {
+        feedGrid.innerHTML = state.items.map((item) => {
+          const itemType = String(item.item_type || "feed_item");
+          const title = App.escapeHtml(item.title || "(无标题)");
+          const section = App.escapeHtml(item.section_id || "-");
+          const bookTitle = App.escapeHtml(item.book_title || "未知书籍");
+          const readHref = readerUrl(item);
+          const bookHref = bookUrl(item);
+          const coverHref = App.escapeHtml(coverUrl(item));
+          const likeCount = Number(item.like_count || 0);
+          const commentCount = Number(item.comment_count || 0);
+          const completeCount = Number(item.complete_count || 0);
+
+          return `
+            <article class="post-card">
+              <a class="post-cover" href="${readHref}">
+                <span class="post-cover-frame">
+                  <img class="post-cover-image" src="${coverHref}" loading="lazy" alt="pdf-cover">
+                </span>
+                <span class="post-chip">${itemType === "memory_post" ? "回忆" : "章节"}</span>
+              </a>
+              <div class="post-body">
+                <h2 class="post-title"><a href="${readHref}">${title}</a></h2>
+                <div class="post-meta">
+                  <a class="post-book" href="${bookHref}">${bookTitle}</a>
+                  <span>${section}</span>
+                </div>
+                <div class="post-stats">
+                  <span>点赞 ${likeCount}</span>
+                  <span>评论 ${commentCount}</span>
+                  <span>完成 ${completeCount}</span>
+                </div>
+              </div>
+            </article>
+          `;
+        }).join("");
+      }
+
+      async function loadFeed(reset = false) {
+        if (state.loading) {
+          return;
+        }
+        state.loading = true;
+        moreBtn.disabled = true;
+
+        if (reset) {
+          state.items = [];
+          state.cursor = null;
+          renderFeed();
+        }
+
+        try {
+          const params = new URLSearchParams();
+          params.set("limit", "20");
+          params.set("mode", "default");
+          params.set("compact", "1");
+          if (state.userId) {
+            params.set("user_id", state.userId);
+          }
+          if (state.withMemory && state.userId) {
+            params.set("with_memory", "1");
+          }
+          if (state.cursor) {
+            params.set("cursor", state.cursor);
+          }
+
+          const payload = await App.apiFetch(`/v1/feed?${params.toString()}`, { token: state.token });
+          const list = Array.isArray(payload.items) ? payload.items : [];
+          state.items = state.items.concat(list);
+          state.cursor = payload.next_cursor || null;
+          renderFeed();
+
+          if (!state.items.length) {
+            setNotice("还没有可展示的章节。请先在目录标注台完成目录审核（审核通过后才会进入 Feed）。", false);
+          } else {
+            setNotice(`已加载 ${state.items.length} 条。`, false);
+          }
+          saveFeedState();
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "加载失败";
+          setNotice(`加载失败：${msg}`, true);
+        } finally {
+          state.loading = false;
+          moreBtn.disabled = false;
+          moreBtn.hidden = !state.cursor;
+        }
+      }
+
+      async function exportUserState() {
+        if (!App.isUuidLike(state.userId || "")) {
+          setNotice("请先设置有效 user_id 后再导出。", true);
+          return;
+        }
+        try {
+          const params = new URLSearchParams();
+          params.set("user_id", state.userId);
+          params.set("include_library_books", "1");
+          if (state.exportDir) {
+            params.set("export_dir", state.exportDir);
+          }
+          const payload = await App.apiFetch(`/v1/user/export?${params.toString()}`, { token: state.token });
+          setNotice(`导出完成：${payload.export_path || "路径未知"}（已用书 ${payload.used_book_count || 0} 本）`, false);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "导出失败";
+          setNotice(`导出失败：${msg}`, true);
+        }
+      }
+
+      async function showLibraryCount() {
+        try {
+          const payload = await App.apiFetch("/v1/books?limit=2000", { token: state.token });
+          const count = Number(payload.count || 0);
+          setNotice(`当前书库共 ${count} 本（仅统计可用 PDF）。`, false);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "查询失败";
+          setNotice(`查询书库失败：${msg}`, true);
+        }
+      }
+
+      async function importLibraryFromWeb() {
+        const inputDir = String(importDirInput.value || "").trim();
+        if (!inputDir) {
+          setNotice("请先填写图书目录路径。", true);
+          return;
+        }
+        const recursive = !!importRecursiveSwitch.checked;
+        const storage = String(importStorageSelect.value || "on_demand");
+        state.importDir = inputDir;
+        state.importRecursive = recursive;
+        state.importStorage = storage;
+        window.localStorage.setItem("bookflow.import_dir", state.importDir);
+        window.localStorage.setItem("bookflow.import_recursive", state.importRecursive ? "1" : "0");
+        window.localStorage.setItem("bookflow.import_storage", state.importStorage);
+
+        importBtn.disabled = true;
+        setNotice("正在启动导入任务...", false);
+        setImportProgress("准备中...", false, false);
+        const importBody = {
+          input_dir: inputDir,
+          recursive,
+          book_type_strategy: "auto",
+          pdf_section_storage: storage,
+        };
+        try {
+          let finalPayload = null;
+          try {
+            const start = await App.apiFetch("/v1/books/import_start", {
+              method: "POST",
+              token: state.token,
+              body: importBody,
+            });
+            const jobId = String(start.job_id || "").trim();
+            if (!jobId) {
+              throw new Error("import job id missing");
+            }
+            setImportProgress(`导入任务已启动：${jobId.slice(0, 8)}...`, false, false);
+
+            let guard = 0;
+            while (guard < 7200) {
+              guard += 1;
+              const job = await App.apiFetch(`/v1/books/import_job?job_id=${encodeURIComponent(jobId)}`, { token: state.token });
+              const status = String(job.status || "");
+              const cur = Number(job.progress_current || 0);
+              const total = Number(job.progress_total || 0);
+              const pct = Number(job.progress_percent || 0);
+              const currentFile = String(job.current_file || "");
+              if (status === "running") {
+                if (total > 0) {
+                  setImportProgress(`导入中 ${cur}/${total} (${pct.toFixed(1)}%) ${currentFile}`, false, false);
+                } else {
+                  setImportProgress(`导入中... ${currentFile || "正在准备文件列表"}`, false, false);
+                }
+                await sleep(800);
+                continue;
+              }
+              finalPayload = {
+                status,
+                return_code: job.return_code,
+                summary: job.summary || {},
+                failed_items: Array.isArray(job.failed_items) ? job.failed_items : [],
+                stderr_tail: String(job.stderr_tail || ""),
+              };
+              break;
+            }
+            if (!finalPayload) {
+              throw new Error("导入任务轮询超时");
+            }
+          } catch (startErr) {
+            // 兼容旧服务：回退到同步导入接口
+            if (Number(startErr?.status || 0) !== 404) {
+              throw startErr;
+            }
+            setImportProgress("服务不支持进度轮询，已回退到同步导入...", false, false);
+            finalPayload = await App.apiFetch("/v1/books/import", {
+              method: "POST",
+              token: state.token,
+              body: importBody,
+            });
+          }
+
+          const payload = finalPayload || {};
+          const summary = payload.summary || {};
+          const ok = Number(summary.success_count || 0);
+          const fail = Number(summary.failure_count || 0);
+          const skipped = Number(summary.skipped_count || 0);
+          const status = String(payload.status || summary.status || "").toLowerCase();
+          const failedItems = Array.isArray(payload.failed_items) ? payload.failed_items : [];
+          if (fail > 0) {
+            const samples = failedItems.slice(0, 2).map((x) => {
+              const title = String(x?.title || x?.path || "unknown");
+              const errText = String(x?.error || "").split("\n")[0].slice(0, 120);
+              return `${title}: ${errText}`;
+            });
+            setImportProgress(
+              samples.length
+                ? `失败样例：${samples.join(" | ")}`
+                : "有失败文件，详情可在 summary/stderr_tail 查看。",
+              true,
+              false,
+            );
+          } else {
+            setImportProgress("导入无失败项。", false, false);
+          }
+
+          if (status === "error") {
+            const msg = `导入失败：成功 ${ok} 本，失败 ${fail} 本，跳过 ${skipped} 本`;
+            setNotice(msg, true);
+          } else if (status === "partial" || fail > 0) {
+            setNotice(`导入部分成功：成功 ${ok} 本，失败 ${fail} 本，跳过 ${skipped} 本。`, true);
+          } else {
+            setNotice(`导入完成：成功 ${ok} 本，失败 ${fail} 本，跳过 ${skipped} 本。`, false);
+          }
+          await loadFeed(true);
+        } catch (err) {
+          const p = err?.payload || {};
+          const msg = p?.error?.message || err.message || "导入失败";
+          setImportProgress(`导入失败：${msg}`, true, false);
+          setNotice(`导入失败：${msg}`, true);
+        } finally {
+          importBtn.disabled = false;
+        }
+      }
+
+      refreshBtn.addEventListener("click", () => {
+        const cfg = App.saveConfig(tokenInput.value, userInput.value);
+        state.token = cfg.token;
+        state.userId = cfg.userId || App.getStoredUserId();
+        userInput.value = state.userId || "";
+        state.exportDir = String(exportDirInput.value || "").trim() || "data/users/export";
+        exportDirInput.value = state.exportDir;
+        window.localStorage.setItem("bookflow.user_export_dir", state.exportDir);
+        state.withMemory = !!memorySwitch.checked;
+        loadFeed(true);
+      });
+
+      moreBtn.addEventListener("click", () => {
+        loadFeed(false);
+      });
+
+      exportBtn.addEventListener("click", () => {
+        const cfg = App.saveConfig(tokenInput.value, userInput.value);
+        state.token = cfg.token;
+        state.userId = cfg.userId || App.getStoredUserId();
+        userInput.value = state.userId || "";
+        state.exportDir = String(exportDirInput.value || "").trim() || "data/users/export";
+        exportDirInput.value = state.exportDir;
+        window.localStorage.setItem("bookflow.user_export_dir", state.exportDir);
+        void exportUserState();
+      });
+
+      booksBtn.addEventListener("click", () => {
+        const cfg = App.saveConfig(tokenInput.value, userInput.value);
+        state.token = cfg.token;
+        state.userId = cfg.userId || App.getStoredUserId();
+        void showLibraryCount();
+      });
+
+      importBtn.addEventListener("click", () => {
+        const cfg = App.saveConfig(tokenInput.value, userInput.value);
+        state.token = cfg.token;
+        state.userId = cfg.userId || App.getStoredUserId();
+        userInput.value = state.userId || "";
+        void importLibraryFromWeb();
+      });
+
+      feedGrid.addEventListener("click", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+        const link = target.closest("a[href*='/app/reader']");
+        if (!link) {
+          return;
+        }
+        saveFeedState();
+      });
+
+      window.addEventListener("scroll", () => {
+        if (!state.items.length) {
+          return;
+        }
+        scheduleSaveFeedState();
+      }, { passive: true });
+      window.addEventListener("beforeunload", () => {
+        saveFeedState();
+      });
+      window.addEventListener("pageshow", (evt) => {
+        const navEntry = (window.performance && typeof window.performance.getEntriesByType === "function")
+          ? window.performance.getEntriesByType("navigation")[0]
+          : null;
+        const isBackForward = !!evt.persisted || (navEntry && navEntry.type === "back_forward");
+        if (!isBackForward) {
+          return;
+        }
+        restoreFeedState({ keepScroll: true, silent: true });
+      });
+
+      if (!restoreFeedState({ keepScroll: false })) {
+        loadFeed(true);
+      }
+    })();
+  </script>
+</body>
+</html>

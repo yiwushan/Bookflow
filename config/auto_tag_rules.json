@@ -1,0 +1,119 @@
+{
+  "config_version": "2026-03-29",
+  "active_rule_version": "v1",
+  "rule_versions": {
+    "v0": {
+      "算法": {
+        "category": "technical",
+        "keywords": [
+          "梯度",
+          "损失函数",
+          "优化"
+        ]
+      },
+      "编程": {
+        "category": "technical",
+        "keywords": [
+          "for ",
+          "def ",
+          "class ",
+          "print("
+        ]
+      },
+      "心理学": {
+        "category": "general",
+        "keywords": [
+          "心理",
+          "认知",
+          "情绪"
+        ]
+      },
+      "睡前故事": {
+        "category": "fiction",
+        "keywords": [
+          "故事",
+          "夜晚",
+          "童话"
+        ]
+      },
+      "小说": {
+        "category": "fiction",
+        "keywords": [
+          "主人公",
+          "对白",
+          "情节"
+        ]
+      },
+      "干货": {
+        "category": "general",
+        "keywords": [
+          "总结",
+          "步骤",
+          "方法",
+          "要点"
+        ]
+      }
+    },
+    "v1": {
+      "算法": {
+        "category": "technical",
+        "keywords": [
+          "梯度",
+          "损失函数",
+          "优化",
+          "algorithm",
+          "gradient"
+        ]
+      },
+      "编程": {
+        "category": "technical",
+        "keywords": [
+          "for ",
+          "def ",
+          "class ",
+          "print(",
+          "代码",
+          "python",
+          "函数"
+        ]
+      },
+      "心理学": {
+        "category": "general",
+        "keywords": [
+          "心理",
+          "认知",
+          "情绪",
+          "行为"
+        ]
+      },
+      "睡前故事": {
+        "category": "fiction",
+        "keywords": [
+          "故事",
+          "夜晚",
+          "童话",
+          "梦"
+        ]
+      },
+      "小说": {
+        "category": "fiction",
+        "keywords": [
+          "主人公",
+          "对白",
+          "情节",
+          "章节"
+        ]
+      },
+      "干货": {
+        "category": "general",
+        "keywords": [
+          "总结",
+          "步骤",
+          "方法",
+          "要点",
+          "实践"
+        ]
+      }
+    }
+  }
+}

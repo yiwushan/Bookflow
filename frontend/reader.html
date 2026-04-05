@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BookFlow Reader</title>
+  <link rel="stylesheet" href="/app/styles.css">
+</head>
+<body>
+  <main class="page stack">
+    <section class="panel topbar">
+      <div class="row spread">
+        <div>
+          <h1>章节阅读</h1>
+          <p>读不懂就回看上一节，读顺了继续下一节。</p>
+        </div>
+        <a id="backFeedLink" class="btn subtle link" href="/app">返回 Feed</a>
+      </div>
+      <div class="row">
+        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
+        <input id="userInput" class="input" placeholder="user_id (可选)" style="min-width:260px;">
+        <button id="saveBtn" class="btn primary" type="button">保存配置</button>
+      </div>
+      <div id="notice" class="notice">准备加载章节...</div>
+    </section>
+
+    <section id="readerCard" class="panel reader-card" hidden>
+      <h2 id="titleEl" class="reader-title"></h2>
+      <p id="metaEl" class="reader-meta"></p>
+      <iframe id="pdfFrame" class="reader-pdf" hidden title="章节 PDF"></iframe>
+      <pre id="textEl" class="reader-text" hidden></pre>
+
+      <div class="reader-nav">
+        <button id="prevBtn" class="btn subtle" type="button">上一节</button>
+        <a id="bookBtn" class="btn subtle link" href="#">本书拼图</a>
+        <button id="nextBtn" class="btn primary" type="button">下一节</button>
+      </div>
+
+      <div class="reader-actions">
+        <button id="completeBtn" class="btn primary" type="button">标记完成</button>
+        <button id="confusionBtn" class="btn subtle" type="button">看不懂</button>
+        <button id="likeBtn" class="btn subtle" type="button">点赞</button>
+      </div>
+
+      <div class="reader-actions">
+        <button id="commentBtn" class="btn subtle" type="button">写评论</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app/app.js"></script>
+  <script>
+    (() => {
+      const App = window.BookFlowApp;
+      const FEED_STATE_KEY = "bookflow.feed.state.v1";
+      const query = App.parseQuery();
+      const initialUserId = App.isUuidLike(query.user_id) ? query.user_id : App.getStoredUserId();
+
+      const state = {
+        token: App.getStoredToken(),
+        userId: initialUserId,
+        bookId: query.book_id || "",
+        chunkId: query.chunk_id || "",
+        detail: null,
+        context: null,
+        enterSent: false,
+        enterAt: Date.now(),
+        leaveReported: false,
+      };
+
+      const tokenInput = document.getElementById("tokenInput");
+      const userInput = document.getElementById("userInput");
+      const saveBtn = document.getElementById("saveBtn");
+      const backFeedLink = document.getElementById("backFeedLink");
+      const noticeEl = document.getElementById("notice");
+      const readerCard = document.getElementById("readerCard");
+      const titleEl = document.getElementById("titleEl");
+      const metaEl = document.getElementById("metaEl");
+      const pdfFrame = document.getElementById("pdfFrame");
+      const textEl = document.getElementById("textEl");
+      const prevBtn = document.getElementById("prevBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const bookBtn = document.getElementById("bookBtn");
+      const completeBtn = document.getElementById("completeBtn");
+      const confusionBtn = document.getElementById("confusionBtn");
+      const likeBtn = document.getElementById("likeBtn");
+      const commentBtn = document.getElementById("commentBtn");
+
+      tokenInput.value = state.token;
+      userInput.value = state.userId || "";
+
+      function setNotice(text, isError = false) {
+        noticeEl.className = isError ? "notice error" : "notice";
+        noticeEl.textContent = text;
+      }
+
+      function updateUrl() {
+        const params = new URLSearchParams();
+        params.set("book_id", state.bookId || "");
+        params.set("chunk_id", state.chunkId || "");
+        if (state.userId) {
+          params.set("user_id", state.userId);
+        }
+        window.history.replaceState({}, "", `/app/reader?${params.toString()}`);
+      }
+
+      function backToFeed(evt) {
+        if (evt) {
+          evt.preventDefault();
+        }
+        const ref = String(document.referrer || "");
+        const sameOrigin = ref.startsWith(window.location.origin);
+        if (window.history.length > 1 && sameOrigin) {
+          window.history.back();
+          return;
+        }
+        window.location.href = "/app";
+      }
+
+      function buildBookUrl() {
+        const params = new URLSearchParams();
+        params.set("book_id", state.bookId || "");
+        if (state.userId) {
+          params.set("user_id", state.userId);
+        }
+        return `/app/book?${params.toString()}`;
+      }
+
+      function buildPdfUrl(rawUrl) {
+        const src = String(rawUrl || "").trim();
+        if (!src) {
+          return "";
+        }
+        const url = new URL(src, window.location.origin);
+        if (!url.searchParams.get("token")) {
+          url.searchParams.set("token", state.token);
+        }
+        if (!url.searchParams.get("compact")) {
+          url.searchParams.set("compact", "1");
+        }
+        return url.toString();
+      }
+
+      function canSendEvents() {
+        const ids = currentEventIds();
+        return (
+          App.isUuidLike(ids.userId)
+          && App.isUuidLike(ids.bookId)
+          && String(ids.chunkId || "").trim().length > 0
+        );
+      }
+
+      function normalizeUserId() {
+        const raw = String(state.userId || "").trim();
+        if (App.isUuidLike(raw)) {
+          return raw;
+        }
+        const fallback = App.getStoredUserId();
+        state.userId = fallback;
+        userInput.value = fallback;
+        return fallback;
+      }
+
+      function currentEventIds() {
+        const userId = normalizeUserId();
+        const bookId = String(state.bookId || state.detail?.book_id || "").trim();
+        const chunkId = String(state.chunkId || state.detail?.chunk_id || "").trim();
+        if (bookId) {
+          state.bookId = bookId;
+        }
+        if (chunkId) {
+          state.chunkId = chunkId;
+        }
+        return { userId, bookId, chunkId };
+      }
+
+      async function sendEvent(eventType, payload = {}, position = 1, options = {}) {
+        const strict = options?.strict !== false;
+        const ids = currentEventIds();
+        if (!canSendEvents()) {
+          if (strict) {
+            throw new Error(`事件未上报：user_id/book_id/chunk_id 条件不足（user_id=${ids.userId || "-"}, book_id=${ids.bookId || "-"}, chunk_id=${ids.chunkId || "-"}）`);
+          }
+          return { status: "skipped", reason: "missing_identifiers" };
+        }
+        const event = App.buildInteractionEvent({
+          eventType,
+          userId: ids.userId,
+          bookId: ids.bookId,
+          chunkId: ids.chunkId,
+          positionInChunk: position,
+          payload,
+        });
+        const result = await App.sendInteractionEvents([event], { token: state.token });
+        const accepted = Number(result?.accepted || 0);
+        const deduplicated = Number(result?.deduplicated || 0);
+        const rejected = Number(result?.rejected || 0);
+        if (accepted <= 0 && deduplicated <= 0 && rejected > 0) {
+          if (strict) {
+            throw new Error("事件上报被后端拒绝。");
+          }
+          return { status: "rejected", result };
+        }
+        return { status: accepted > 0 ? "accepted" : "deduplicated", result };
+      }
+
+      function bumpFeedSnapshotCount(fieldName, delta = 1) {
+        try {
+          const ids = currentEventIds();
+          const raw = window.sessionStorage.getItem(FEED_STATE_KEY);
+          if (!raw) {
+            return;
+          }
+          const snapshot = JSON.parse(raw);
+          if (!snapshot || typeof snapshot !== "object" || !Array.isArray(snapshot.items)) {
+            return;
+          }
+          const items = snapshot.items;
+          let touched = 0;
+          for (const item of items) {
+            if (String(item?.book_id || "") !== String(ids.bookId || "")) {
+              continue;
+            }
+            if (String(item?.chunk_id || "") !== String(ids.chunkId || "")) {
+              continue;
+            }
+            const curr = Math.max(0, Number(item[fieldName] || 0) || 0);
+            item[fieldName] = curr + Math.max(0, Number(delta || 0) || 0);
+            touched += 1;
+            break;
+          }
+          if (!touched) {
+            return;
+          }
+          snapshot.savedAt = Date.now();
+          window.sessionStorage.setItem(FEED_STATE_KEY, JSON.stringify(snapshot));
+        } catch (err) {
+          void err;
+        }
+      }
+
+      async function loadDetailAndContext() {
+        if (!state.chunkId) {
+          setNotice("缺少 chunk_id。请从 Feed 卡片进入。", true);
+          return;
+        }
+
+        setNotice("加载中...", false);
+        try {
+          const detailParams = new URLSearchParams();
+          detailParams.set("chunk_id", state.chunkId);
+          if (state.bookId) {
+            detailParams.set("book_id", state.bookId);
+          }
+          detailParams.set("compact", "1");
+
+          const detail = await App.apiFetch(`/v1/chunk_detail?${detailParams.toString()}`, { token: state.token });
+          state.detail = detail;
+          state.bookId = detail.book_id || state.bookId;
+
+          const ctxParams = new URLSearchParams();
+          ctxParams.set("chunk_id", state.chunkId);
+          if (state.bookId) {
+            ctxParams.set("book_id", state.bookId);
+          }
+          ctxParams.set("compact", "1");
+          state.context = await App.apiFetch(`/v1/chunk_context?${ctxParams.toString()}`, { token: state.token });
+
+          titleEl.textContent = detail.title || "(无标题)";
+          const pageStart = detail.page_start || "?";
+          const pageEnd = detail.page_end || "?";
+          metaEl.textContent = [
+            `书名：${detail.book_title || "未知"}`,
+            `小节：${detail.section_id || "-"}`,
+            `页码：${pageStart}-${pageEnd}`,
+          ].join("  ·  ");
+
+          const contentType = String(detail.content_type || "text");
+          if (contentType === "pdf_section" && detail.section_pdf_url) {
+            pdfFrame.hidden = false;
+            textEl.hidden = true;
+            pdfFrame.src = buildPdfUrl(detail.section_pdf_url);
+          } else {
+            pdfFrame.hidden = true;
+            textEl.hidden = false;
+            textEl.textContent = String(detail.text_content || detail.teaser_text || "(无正文)");
+          }
+
+          prevBtn.disabled = !state.context?.prev_chunk_id;
+          nextBtn.disabled = !state.context?.next_chunk_id;
+          bookBtn.href = buildBookUrl();
+
+          readerCard.hidden = false;
+          setNotice("加载完成。", false);
+
+          if (!state.enterSent) {
+            state.enterSent = true;
+            try {
+              await sendEvent("enter_context", { section_id: detail.section_id || "" }, 0.1, { strict: false });
+            } catch (err) {
+              void err;
+            }
+          }
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "加载失败";
+          setNotice(`加载失败：${msg}`, true);
+          readerCard.hidden = true;
+        }
+      }
+
+      async function jumpTo(targetChunkId, isBacktrack = false) {
+        if (!targetChunkId) {
+          return;
+        }
+        const fromChunkId = state.chunkId;
+        state.chunkId = targetChunkId;
+        state.enterSent = false;
+        state.enterAt = Date.now();
+        updateUrl();
+
+        if (isBacktrack && fromChunkId && fromChunkId !== targetChunkId) {
+          try {
+            await sendEvent("backtrack", {
+              from_chunk_id: fromChunkId,
+              to_chunk_id: targetChunkId,
+            }, 0.5, { strict: false });
+          } catch (err) {
+            void err;
+          }
+        }
+        await loadDetailAndContext();
+      }
+
+      saveBtn.addEventListener("click", () => {
+        const cfg = App.saveConfig(tokenInput.value, userInput.value);
+        state.token = cfg.token;
+        state.userId = cfg.userId || App.getStoredUserId();
+        userInput.value = state.userId || "";
+        updateUrl();
+        loadDetailAndContext();
+      });
+      backFeedLink.addEventListener("click", backToFeed);
+
+      prevBtn.addEventListener("click", () => {
+        void jumpTo(state.context?.prev_chunk_id || "", true);
+      });
+
+      nextBtn.addEventListener("click", () => {
+        void jumpTo(state.context?.next_chunk_id || "", false);
+      });
+
+      completeBtn.addEventListener("click", async () => {
+        try {
+          const sectionId = state.detail?.section_id;
+          if (!sectionId) {
+            setNotice("缺少 section_id，无法标记完成。", true);
+            return;
+          }
+          const result = await sendEvent("section_complete", { section_id: sectionId }, 1);
+          if (result?.status === "accepted") {
+            bumpFeedSnapshotCount("complete_count", 1);
+          }
+          setNotice("已标记本节完成。", false);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "上报失败";
+          setNotice(`提交失败：${msg}`, true);
+        }
+      });
+
+      confusionBtn.addEventListener("click", async () => {
+        try {
+          await sendEvent("confusion", { confusion_type: "need_previous_context" }, 0.4);
+          setNotice("已记录“看不懂”反馈。", false);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "上报失败";
+          setNotice(`提交失败：${msg}`, true);
+        }
+      });
+
+      likeBtn.addEventListener("click", async () => {
+        try {
+          const result = await sendEvent("like", {}, 1);
+          if (result?.status === "accepted") {
+            bumpFeedSnapshotCount("like_count", 1);
+          }
+          setNotice("已点赞。", false);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "上报失败";
+          setNotice(`提交失败：${msg}`, true);
+        }
+      });
+
+      commentBtn.addEventListener("click", async () => {
+        const text = window.prompt("写下你的理解或疑问：", "");
+        if (!text || !String(text).trim()) {
+          return;
+        }
+        try {
+          const result = await sendEvent("comment", { text: String(text).trim() }, 1);
+          if (result?.status === "accepted") {
+            bumpFeedSnapshotCount("comment_count", 1);
+          }
+          setNotice("评论已记录。", false);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "上报失败";
+          setNotice(`提交失败：${msg}`, true);
+        }
+      });
+
+      function reportImpressionOnLeave() {
+        if (state.leaveReported) {
+          return;
+        }
+        if (!canSendEvents()) {
+          return;
+        }
+        state.leaveReported = true;
+        const sec = Math.max(1, Math.round((Date.now() - state.enterAt) / 1000));
+        const event = App.buildInteractionEvent({
+          eventType: "impression",
+          userId: state.userId,
+          bookId: state.bookId,
+          chunkId: state.chunkId,
+          positionInChunk: 1,
+          payload: { dwell_sec: sec, section_id: state.detail?.section_id || "" },
+        });
+        void window.fetch("/v1/interactions", {
+          method: "POST",
+          keepalive: true,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${state.token}`,
+          },
+          body: JSON.stringify({ events: [event] }),
+        }).catch(() => {});
+      }
+
+      window.addEventListener("beforeunload", reportImpressionOnLeave);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          reportImpressionOnLeave();
+        }
+      });
+
+      updateUrl();
+      loadDetailAndContext();
+    })();
+  </script>
+</body>
+</html>

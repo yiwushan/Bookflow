@@ -1,0 +1,36 @@
+{
+  "defaults": {
+    "target_read_sec_min": 180,
+    "target_read_sec_max": 480,
+    "hard_char_max": 3600,
+    "chars_per_sec_zh": 4.5,
+    "english_words_per_min": 170.0,
+    "extract_confidence_crop_threshold": 0.55,
+    "code_confidence_threshold": 0.75,
+    "formula_dense_threshold": 3,
+    "technical_formula_bias": false
+  },
+  "templates": {
+    "general": {
+      "target_read_sec_min": 150,
+      "target_read_sec_max": 420,
+      "hard_char_max": 3200
+    },
+    "fiction": {
+      "target_read_sec_min": 180,
+      "target_read_sec_max": 540,
+      "hard_char_max": 4200,
+      "technical_formula_bias": false
+    },
+    "technical": {
+      "target_read_sec_min": 180,
+      "target_read_sec_max": 420,
+      "hard_char_max": 3000,
+      "extract_confidence_crop_threshold": 0.6,
+      "code_confidence_threshold": 0.8,
+      "formula_dense_threshold": 2,
+      "technical_formula_bias": true
+    }
+  }
+}
+

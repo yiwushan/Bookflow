@@ -1,0 +1,62 @@
+{
+  "book_id": "b_sample_001",
+  "book_type": "technical",
+  "language": "zh",
+  "extract_confidence": 0.78,
+  "source": {
+    "format": "pdf",
+    "pages": 120
+  },
+  "blocks": [
+    {
+      "block_id": "b1",
+      "kind": "heading",
+      "text": "2.1 梯度下降的核心直觉",
+      "page": 12,
+      "bbox": [0.08, 0.10, 0.92, 0.16]
+    },
+    {
+      "block_id": "b2",
+      "kind": "paragraph",
+      "text": "我们先从一个非常简单的二次函数开始。设损失函数为 L(w)=w^2。",
+      "page": 12,
+      "bbox": [0.08, 0.18, 0.92, 0.30]
+    },
+    {
+      "block_id": "b3",
+      "kind": "formula",
+      "text": "w_{t+1}=w_t-η∂L/∂w",
+      "page": 12,
+      "bbox": [0.12, 0.31, 0.88, 0.38]
+    },
+    {
+      "block_id": "b4",
+      "kind": "paragraph",
+      "text": "这个更新式告诉我们，每次迭代都朝着损失下降最快的方向前进。",
+      "page": 12,
+      "bbox": [0.08, 0.40, 0.92, 0.52]
+    },
+    {
+      "block_id": "b5",
+      "kind": "heading",
+      "text": "2.2 一个最小实现",
+      "page": 13,
+      "bbox": [0.08, 0.10, 0.92, 0.16]
+    },
+    {
+      "block_id": "b6",
+      "kind": "code",
+      "text": "for step in range(10):\n    grad = 2*w\n    w = w - lr*grad",
+      "page": 13,
+      "bbox": [0.10, 0.20, 0.90, 0.42]
+    },
+    {
+      "block_id": "b7",
+      "kind": "paragraph",
+      "text": "这段代码展示了最基本的梯度下降流程。",
+      "page": 13,
+      "bbox": [0.08, 0.45, 0.92, 0.58]
+    }
+  ]
+}
+

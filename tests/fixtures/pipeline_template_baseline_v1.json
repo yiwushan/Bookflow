@@ -1,0 +1,42 @@
+{
+  "case_id": "template_baseline_v1",
+  "payload_template": {
+    "book_id": "b_tpl_baseline",
+    "language": "zh",
+    "extract_confidence": 0.95,
+    "heading": "1 模板回归",
+    "formula": "w_{t+1}=w_t-η∂L/∂w",
+    "paragraph_token": "理论说明",
+    "paragraph_repeat": 800
+  },
+  "expected": {
+    "general": {
+      "chunk_count": 2,
+      "render_mode_counts": {
+        "reflow": 2
+      },
+      "render_reason_counts": {
+        "text_reflow_friendly": 2
+      }
+    },
+    "fiction": {
+      "chunk_count": 1,
+      "render_mode_counts": {
+        "reflow": 1
+      },
+      "render_reason_counts": {
+        "text_reflow_friendly": 1
+      }
+    },
+    "technical": {
+      "chunk_count": 3,
+      "render_mode_counts": {
+        "crop": 3
+      },
+      "render_reason_counts": {
+        "technical_formula_bias": 3,
+        "text_reflow_friendly": 3
+      }
+    }
+  }
+}

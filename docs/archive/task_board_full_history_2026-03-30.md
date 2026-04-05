@@ -1,0 +1,463 @@
+# BookFlow 任务看板
+
+说明：任务 ID 稳定，不因排序变化而改号。接手者优先执行 `NOW`。
+
+## NOW
+- `NOW-444` 在目录标注台增加“重叠区间/倒序页码”高亮与快速修正提示。
+- `NOW-445` 产出 `docs/ops/first_product_recovery.md`（容器/数据库/导入失败快速恢复手册）。
+- `NOW-446` 为 `first_product.sh` 增加 `--accept-e2e` 开关，自动串联 `accept_end_to_end_flow.py`。
+
+## NEXT
+- `NEXT-447` 为 `import_library.py` 增加 `--manifest-output`（导入清单 UUID/title/chunk_count 导出）。
+- `NEXT-448` 在 `docs/FIRST_PRODUCT.md` 增加“技术书模式参数建议”与推荐阈值。
+- `NEXT-449` 目录标注保存后增加“应用到章节阅读视图”的联调验收脚本。
+
+## LATER
+- `LATER-001` 技术书模式下公式/代码块保真渲染质量评估。
+- `LATER-002` 回忆帖“那年今日”召回策略与去重策略联动。
+- `LATER-003` 用户注释/评论的二次召回与复习插流。
+
+## DONE
+- `DONE-001` PRD 从“停留导向”改为“完整小节完成 + 连续深读导向”。
+- `DONE-002` 增加技术书模式（保真改写、问题导向钩子、上下文优先）。
+- `DONE-003` 增加 reflow/crop 混合渲染策略与 source anchor 字段。
+- `DONE-004` 产出 `docs/specs/chunking.md`（切片算法、阈值、伪代码、边界案例）。
+- `DONE-005` 产出 `docs/specs/render_mode.md`（判定规则、打分、回退策略）。
+- `DONE-006` 产出 `docs/specs/events.md`（核心事件、聚合口径、幂等规则）。
+- `DONE-007` 产出 `docs/specs/schema.sql`（可执行 DDL）。
+- `DONE-008` 产出 `docs/specs/api.md`（接口草案与错误码）。
+- `DONE-009` 产出 `scripts/pipeline.py` + `examples/*`（最小可运行 pipeline）。
+- `DONE-010` 产出 `migrations/0001_init.sql` + `migrations/README.md` + `0001_rollback.sql`。
+- `DONE-011` 产出 `server/app.py` + `server/README.md`（可启动 API 骨架）。
+- `DONE-012` 产出 `tests/test_pipeline.py`（5 条用例通过）。
+- `DONE-013` 产出 `docs/specs/metrics.sql`（核心看板指标 SQL）。
+- `DONE-014` pipeline 输出新增稳定 `render_reason` 与统计计数。
+- `DONE-015` 产出 `config/pipeline.json` 并由 CLI `--config` 读取。
+- `DONE-016` Postgres 持久化路径打通并验收（health/feed/interactions）。
+- `DONE-017` 产出 `server/dao.py`（MemoryDAO + PostgresDAO）。
+- `DONE-018` feed 在 Postgres 模式返回真实 DB 数据（不依赖样例 JSON）。
+- `DONE-019` 产出 `migrations/0003_metrics_materialized.sql` + `scripts/refresh_metrics.py`。
+- `DONE-020` pipeline 配置支持 `defaults + templates(book_type)`。
+- `DONE-021` 产出 `tests/test_api_contract.py`（接口合约自动化测试）。
+- `DONE-022` 完成 repository/service 拆层并保持接口兼容。
+- `DONE-023` interactions 批量写入优化（单连接批处理）。
+- `DONE-024` 产出 `scripts/import_book.py`，完成文件->清洗->切片->入库闭环。
+- `DONE-025` 新增 `tests/test_postgres_integration.py`，覆盖 interactions 批量写入 + 幂等去重（Postgres 实库）。
+- `DONE-026` 增加 pipeline 模板回归样本测试（`book_type` 维度输出差异自动验证）。
+- `DONE-027` 新增 `scripts/accept_import_feed.py`，完成 import->feed 自动验收闭环。
+- `DONE-028` 产出 `docs/ops/metrics_refresh_scheduler.md`（cron/systemd 双方案）。
+- `DONE-029` 补充 Postgres 合约场景测试（feed 过滤、无效 UUID 入参）。
+- `DONE-030` 固化 pipeline 模板回归基线（`tests/fixtures/pipeline_template_baseline_v1.json`）。
+- `DONE-031` 增加 `interaction_rejections` 落库与 `scripts/report_interaction_rejections.py` 聚合脚本。
+- `DONE-032` feed 默认模式支持 `user_id` 偏好混排（`user_tag_profile × chunk_tags`）。
+- `DONE-033` import CLI 增强 markdown/code block 边界清洗（fence + indented code）。
+- `DONE-034` 新增 `scripts/backfill_reading_progress.py`，支持按交互事件回填阅读进度。
+- `DONE-035` 新增 `/v1/chunk_context`，支持同书上一/下一切片导航。
+- `DONE-036` import CLI 增加失败重试与错误报告（`logs/import_errors/*.json`）。
+- `DONE-037` 增加标签最小种子与冷启动偏好映射（`0005_seed_tags.sql` + `bootstrap_user_tags.py`）。
+- `DONE-038` 增加 `reading_progress` 增量触发器（`0006_reading_progress_trigger.sql`）。
+- `DONE-039` 新增规则版自动打标脚本（`scripts/auto_tag_chunks.py`）并接入集成测试。
+- `DONE-040` feed 支持可选排序解释 trace（`trace=1` 返回 `ranking_trace`）。
+- `DONE-041` 新增 `/v1/chunk_context_batch`，支持批量上下文预取。
+- `DONE-042` 新增导入错误报告清理归档脚本（`scripts/cleanup_import_error_reports.py`）。
+- `DONE-043` 新增阅读进度健康检查脚本（`scripts/report_reading_progress_health.py`）。
+- `DONE-044` feed 新增回忆帖占位混排开关（`with_memory=1`，首屏最多 1 条）。
+- `DONE-045` 新增 auto-tag 规则命中率分析脚本（`scripts/report_auto_tag_rule_hits.py`）。
+- `DONE-046` feed trace 支持按请求ID落盘（`trace_file=1`）。
+- `DONE-047` `chunk_context_batch` 增加 POST JSON 版本。
+- `DONE-048` auto-tag 规则支持配置化加载（`config/auto_tag_rules.json`）。
+- `DONE-049` reading_progress 健康报告支持 CSV 导出（`--csv-output`）。
+- `DONE-050` 为 memory posts 增加最小种子与验收脚本（`0007_seed_memory_posts.sql` + `accept_memory_feed.py`）。
+- `DONE-051` feed with_memory 增加频控参数（`memory_every`，每 N 条普通内容插 1 条）。
+- `DONE-052` `chunk_context_batch` 增加服务层短 TTL 缓存（默认 5 秒，可配置）。
+- `DONE-053` 新增 feed trace 清理归档脚本（`scripts/cleanup_feed_trace_files.py`）及测试。
+- `DONE-054` auto-tag 规则配置升级为版本化结构，并新增回滚脚本（`set_auto_tag_rule_version.py`）。
+- `DONE-055` memory posts 增加真实样例种子（`0008`）与插流回放脚本（`replay_memory_feed.py`）。
+- `DONE-056` feed 回忆帖插位策略参数化（`memory_position=top|interval|random` + `memory_seed`）。
+- `DONE-057` `chunk_context_batch` 支持可选缓存指标输出（命中/过期/回源）。
+- `DONE-058` import 错误报告清理脚本支持 cron 友好退出码（`--cron-exit-codes`）。
+- `DONE-059` 新增 feed trace 清理调度文档（`docs/ops/feed_trace_cleanup_scheduler.md`）。
+- `DONE-060` 新增 auto-tag 版本命中率回归对比脚本（`compare_auto_tag_rule_versions.py`）。
+- `DONE-061` replay_memory_feed 支持 JSONL 输出（`--jsonl-output`）。
+- `DONE-062` chunk_context_batch 支持进程级 cache_stats 重置（`cache_reset=1`）。
+- `DONE-063` random 插位新增“首条不插回忆帖”硬约束开关（`memory_random_never_first`）。
+- `DONE-064` feed trace 清理脚本支持 cron 友好退出码（`--cron-exit-codes`）。
+- `DONE-065` cleanup_import_error_reports 支持 summary-only 输出（`--summary-only`）。
+- `DONE-066` compare_auto_tag_rule_versions 支持 CSV 导出（`--csv-output`）。
+- `DONE-067` replay_memory_feed 支持按场景输出 Markdown 报告（`--markdown-output`）。
+- `DONE-068` chunk_context_batch cache_stats 增加请求级 `request_trace_id` 关联。
+- `DONE-069` 新增 memory_position AB 样本导出脚本（`export_memory_position_ab_samples.py`）。
+- `DONE-070` cleanup_feed_trace_files 支持 summary-only 输出（`--summary-only`）。
+- `DONE-071` cleanup_import_error_reports 支持 Markdown 报告输出（`--markdown-output`）。
+- `DONE-072` replay_memory_feed Markdown 报告增加跨场景摘要总览区块。
+- `DONE-073` chunk_context_batch cache_stats 增加请求级 delta 指标（hit/source_fetch/expired）。
+- `DONE-074` compare_auto_tag_rule_versions 支持 Markdown 报告输出（`--markdown-output`）。
+- `DONE-075` export_memory_position_ab_samples 支持 Markdown 报告输出（`--markdown-output`）。
+- `DONE-076` cleanup_import_error_reports 支持 CSV summary 导出（`--csv-output`）。
+- `DONE-077` cleanup_feed_trace_files 支持 Markdown 报告输出（`--markdown-output`）。
+- `DONE-078` replay_memory_feed 支持 CSV 汇总导出（`--csv-output`）。
+- `DONE-079` chunk_context_batch cache_stats 增加全局重置 trace 记录字段（`last_reset_trace_id`）。
+- `DONE-080` compare_auto_tag_rule_versions 支持 JSONL 明细导出（`--jsonl-output`）。
+- `DONE-081` export_memory_position_ab_samples 支持场景配置文件输入（`--scenario-config`）。
+- `DONE-082` cleanup_import_error_reports Markdown 报告增加路径明细截断计数。
+- `DONE-083` cleanup_feed_trace_files 支持 CSV summary 导出（`--csv-output`）。
+- `DONE-084` replay_memory_feed Markdown 报告增加每场景首条内容类型统计。
+- `DONE-085` chunk_context_batch cache_stats 增加 `cache_entries_delta` 字段。
+- `DONE-086` compare_auto_tag_rule_versions Markdown 报告增加 TopN 配置回显。
+- `DONE-087` export_memory_position_ab_samples `--scenario-config` 支持 YAML（兼容 JSON）。
+- `DONE-088` cleanup_import_error_reports 支持 `--markdown-detail-limit` 自定义明细上限。
+- `DONE-089` cleanup_feed_trace_files Markdown 报告增加路径明细截断计数。
+- `DONE-090` replay_memory_feed CSV 导出补充 `first_item_type` 列说明文档。
+- `DONE-091` chunk_context_batch cache_stats 增加 `reset_ts` 字段。
+- `DONE-092` compare_auto_tag_rule_versions JSONL 明细增加 `rule_rank` 字段。
+- `DONE-093` 新增 chunk 粒度 A/B 离线导出脚本（完整小节 vs 二段拆分）。
+- `DONE-094` feed 回忆帖候选优化为 `source_chunk + memory_type` 轮转优先。
+- `DONE-095` 新增书籍主页拼图原型导出脚本（静态 HTML）。
+- `DONE-096` replay_memory_feed JSONL 字段说明补齐（含 `first_item_type`）。
+- `DONE-097` chunk_context_batch cache_stats 增加 `instance_id` 字段。
+- `DONE-098` compare_auto_tag_rule_versions CSV 导出增加 `rule_rank` 字段。
+- `DONE-099` export_chunk_granularity_ab_samples 支持 `--section-prefix` 章节前缀过滤。
+- `DONE-100` feed 回忆帖候选多样化策略增加 `memory_diversity=on|off` 开关。
+- `DONE-101` render_book_homepage_mosaic 支持 `--tiles-json-output` 导出 tile JSON。
+- `DONE-102` replay_memory_feed Markdown 增加场景级 `memory_type_distribution` 统计。
+- `DONE-103` chunk_context_batch cache_stats 增加 `instance_started_ts` 字段。
+- `DONE-104` compare_auto_tag_rule_versions Markdown 增加 CSV/JSONL schema 说明块。
+- `DONE-105` export_chunk_granularity_ab_samples 增加按 `chunk_title` 关键词过滤。
+- `DONE-106` feed memory_diversity 默认策略加灰度开关（环境变量）。
+- `DONE-107` render_book_homepage_mosaic 增加 tile 状态图例与导出时间戳。
+- `DONE-108` replay_memory_feed CSV 增加 `memory_type_distribution` 列（向后兼容）。
+- `DONE-109` chunk_context_batch cache_stats 增加 `cache_key_cardinality` 估算字段。
+- `DONE-110` compare_auto_tag_rule_versions JSONL 增加 `schema_version` 字段。
+- `DONE-111` export_chunk_granularity_ab_samples Markdown 增加关键词过滤命中率统计。
+- `DONE-112` feed trace_file 落盘增加 memory_diversity 默认来源标记（query/default/gray）。
+- `DONE-113` render_book_homepage_mosaic tiles JSON 增加 schema_version 字段。
+- `DONE-114` replay_memory_feed JSONL 增加 schema_version 字段。
+- `DONE-115` chunk_context_batch cache_stats 增加 cache_key_samples（最多 3 个）调试字段。
+- `DONE-116` compare_auto_tag_rule_versions CSV 增加 schema_version 列。
+- `DONE-117` feed trace_file 增加 memory_diversity 灰度百分比回显字段。
+- `DONE-118` render_book_homepage_mosaic 页面图例增加 read/unread 数量统计。
+- `DONE-119` export_chunk_granularity_ab_samples CSV 增加 keyword_filter_hit_rate 汇总行。
+- `DONE-120` replay_memory_feed CSV 增加 schema_version 列。
+- `DONE-121` chunk_context_batch cache_stats 的 cache_key_samples 增加 expire_at 预估时间。
+- `DONE-122` compare_auto_tag_rule_versions Markdown 增加 CSV/JSONL schema_version 回显。
+- `DONE-123` feed trace_file 增加 memory_diversity 默认值（on/off）来源说明字符串。
+- `DONE-124` render_book_homepage_mosaic tiles JSON 增加 min_read_events 回显字段。
+- `DONE-125` export_chunk_granularity_ab_samples Markdown 增加 CSV 汇总行说明区块。
+- `DONE-126` replay_memory_feed Markdown 增加 CSV/JSONL schema_version 回显。
+- `DONE-127` chunk_context_batch cache_stats 增加 sample_count 字段（样本条数回显）。
+- `DONE-128` compare_auto_tag_rule_versions JSONL summary 增加 csv_schema_version 回显。
+- `DONE-129` feed trace_file 增加 memory_diversity_bucket（0-99）调试回显。
+- `DONE-130` render_book_homepage_mosaic HTML 头部增加 min_read_events 回显。
+- `DONE-131` export_chunk_granularity_ab_samples JSONL 增加 schema_version 字段。
+- `DONE-132` replay_memory_feed 输出 payload 增加 `csv_schema_version`/`jsonl_schema_version` 一致性说明字段。
+- `DONE-133` chunk_context_batch cache_stats 增加 sample_book_ids（样本内 book_id 去重列表）。
+- `DONE-134` compare_auto_tag_rule_versions CSV summary 行增加 jsonl_schema_version 回显列。
+- `DONE-135` feed trace_file 增加 memory_diversity_rollout_enabled 布尔回显。
+- `DONE-136` render_book_homepage_mosaic tiles JSON 增加 html_title 回显字段。
+- `DONE-137` export_chunk_granularity_ab_samples CSV summary 行增加 schema_version 字段。
+- `DONE-138` replay_memory_feed Markdown 增加 `schema_version_consistency_note` 回显。
+- `DONE-139` chunk_context_batch cache_stats 增加 sample_book_ids_count 字段。
+- `DONE-140` compare_auto_tag_rule_versions JSONL rule_delta 行增加 csv_schema_version 字段。
+- `DONE-141` feed trace_file 增加 memory_diversity_rollout_mode 字符串回显（off|full|partial）。
+- `DONE-142` render_book_homepage_mosaic HTML meta 增加 tiles_json_schema_version 回显。
+- `DONE-143` export_chunk_granularity_ab_samples JSONL 增加 csv_schema_version 镜像字段。
+- `DONE-144` replay_memory_feed Markdown 头部增加 markdown_schema_version 字段回显。
+- `DONE-145` chunk_context_batch cache_stats 增加 sample_chunk_ids_count 字段。
+- `DONE-146` compare_auto_tag_rule_versions JSON payload 增加 schema_version_consistency_note 字段。
+- `DONE-147` feed trace_file 增加 memory_diversity_rollout_bucket_hit 布尔回显（bucket < gray_percent）。
+- `DONE-148` render_book_homepage_mosaic tiles JSON 增加 tiles_json_schema_version 镜像字段。
+- `DONE-149` export_chunk_granularity_ab_samples Markdown 增加 csv/jsonl schema_version 回显。
+- `DONE-150` replay_memory_feed JSONL 增加 markdown_schema_version 镜像字段。
+- `DONE-151` chunk_context_batch cache_stats 增加 sample_book_ids_sorted_by_seen 顺序回显。
+- `DONE-152` compare_auto_tag_rule_versions Markdown 增加 schema_version_consistency_note 回显。
+- `DONE-153` feed trace_file 增加 memory_diversity_rollout_bucket_distance 数值回显（bucket-gray_percent）。
+- `DONE-154` render_book_homepage_mosaic payload 增加 html_schema_version 字段。
+- `DONE-155` export_chunk_granularity_ab_samples JSON payload 增加 schema_version_consistency_note 字段。
+- `DONE-156` replay_memory_feed Markdown 总览增加 markdown_schema_version 列回显。
+- `DONE-157` chunk_context_batch cache_stats 增加 sample_chunk_ids_sorted_by_seen 顺序回显。
+- `DONE-158` compare_auto_tag_rule_versions JSONL 增加 markdown_schema_version 镜像字段。
+- `DONE-159` feed trace_file 增加 memory_diversity_rollout_threshold_percent 回显（灰度阈值）。
+- `DONE-160` render_book_homepage_mosaic tiles JSON 增加 html_schema_version 镜像字段。
+- `DONE-161` export_chunk_granularity_ab_samples Markdown 增加 schema_version_consistency_note 回显。
+- `DONE-162` replay_memory_feed CSV 增加 markdown_schema_version 列回显。
+- `DONE-163` chunk_context_batch cache_stats 增加 sample_chunk_ids_first_seen_source 映射回显。
+- `DONE-164` compare_auto_tag_rule_versions JSON payload 增加 markdown_schema_version 回显。
+- `DONE-165` feed trace_file 增加 memory_diversity_rollout_bucket_percentile 回显（bucket/100）。
+- `DONE-166` render_book_homepage_mosaic HTML meta 增加 html_schema_version 回显。
+- `DONE-167` export_chunk_granularity_ab_samples CSV 增加 markdown_schema_version 列回显。
+- `DONE-168` replay_memory_feed CSV 增加 jsonl_schema_version 列回显。
+- `DONE-169` chunk_context_batch cache_stats 增加 sample_chunk_ids_first_seen_source_count 回显。
+- `DONE-170` compare_auto_tag_rule_versions Markdown 头部增加 markdown_schema_version 回显。
+- `DONE-171` feed trace_file 增加 memory_diversity_rollout_bucket_percentile_source 回显（derived_from_bucket）。
+- `DONE-172` render_book_homepage_mosaic HTML meta 增加 tiles_json_schema_version 回显。
+- `DONE-173` export_chunk_granularity_ab_samples JSON payload 增加 markdown_schema_version 回显。
+- `DONE-174` replay_memory_feed CSV 增加 markdown_schema_version_source 列回显（constant）。
+- `DONE-175` chunk_context_batch cache_stats 增加 sample_chunk_ids_first_seen_source_sorted_chunk_ids 回显。
+- `DONE-176` compare_auto_tag_rule_versions CSV summary 行增加 markdown_schema_version 回显。
+- `DONE-177` feed trace_file 增加 memory_diversity_rollout_bucket_percentile_label 回显（Pxx）。
+- `DONE-178` render_book_homepage_mosaic payload 增加 html_meta_tiles_schema_echoed 回显。
+- `DONE-179` export_chunk_granularity_ab_samples Markdown 头部增加 markdown_schema_version 回显。
+- `DONE-180` 新增 `/v1/chunk_detail` 接口：返回切片正文与渲染元数据（供阅读页使用）。
+- `DONE-181` 新增 `/v1/book_mosaic` 接口：返回 `summary + tiles`（对齐 mosaic tiles JSON 结构）。
+- `DONE-182` 后端新增 `/app` 同源静态托管（`frontend/` 文件直出，支持 `/app/reader` `/app/book`）。
+- `DONE-183` 完成前端 Feed MVP（`frontend/index.html`）：单列卡片、上下切换、滚轮/键盘/触屏滑动、分页加载 `/v1/feed`。
+- `DONE-184` 完成前端上下文轴阅读页（`frontend/reader.html`）：联通 `/v1/chunk_detail` + `/v1/chunk_context`，支持上一/下一切片跳转。
+- `DONE-185` 完成书籍拼图页（`frontend/book.html`）：联通 `/v1/book_mosaic`，灰/亮 tile 展示并可回跳阅读页。
+- `DONE-186` 完成前端互动上报闭环：Feed/Reader 接入 `/v1/interactions`（`impression/enter_context/like/comment/section_complete/backtrack`）。
+- `DONE-187` 完成 Feed 回忆帖混排开关：支持 `with_memory=1` 请求与 `memory_post` 卡片样式区分（可在前端切换）。
+- `DONE-188` 完成端到端验收脚本：新增 `scripts/accept_end_to_end_flow.py` 打通导入->Feed->上下文->事件上报，并新增 Postgres 集成测试覆盖。
+- `DONE-189` 导入链路支持 PDF 首版抽取（`pypdf`）：`import_book.py` 可直接读取 PDF 并进入清洗/切片流程，新增对应单测与实测验证。
+- `DONE-190` 完成阅读页 confusion 快捷反馈：`frontend/reader.html` 新增“看不懂”按钮并上报 `event_type=confusion`（含 `confusion_type`）。
+- `DONE-191` 完成 Feed 可视化调试面板：支持显示 `trace_id/next_cursor/memory_inserted/ranking_source` 并可开关。
+- `DONE-192` 完成拼图页章节分组与过滤：`frontend/book.html` 支持按 `section_id` 关键词筛选并分组展示 tile。
+- `DONE-193` 导入链路补齐 EPUB 首版支持：`scripts/import_book.py` 支持 EPUB 文本抽取（spine 优先）并新增依赖缺失保护与单测。
+- `DONE-194` 阅读页上下文预取接入 `/v1/chunk_context_batch`：`frontend/reader.html` 切片切换可命中邻居预取缓存，降低 RTT。
+- `DONE-195` Feed 调试面板补充 trace_file 开关与 trace 文件路径回显：后端返回 `trace_file_path`，前端可视化展示最近落盘路径。
+- `DONE-196` 拼图页支持“已读优先”排序切换：`frontend/book.html` 新增 `sort=default|read_first` 并按阅读状态排序。
+- `DONE-197` 拼图页支持 `chunk_title` 关键词过滤：`frontend/book.html` 新增 `title` 过滤参数并与 `section` 过滤联动。
+- `DONE-198` E2E 验收脚本支持 Markdown + JSONL 双报告：`scripts/accept_end_to_end_flow.py` 新增 `--jsonl-output` 与 schema 回显，并新增集成测试覆盖。
+- `DONE-199` 阅读页预取策略增加可视化命中率与开关：`frontend/reader.html` 新增 prefetch 开关、命中率与缓存规模回显。
+- `DONE-200` Feed 调试面板新增最近 trace 路径复制能力：`frontend/index.html` 增加“一键复制路径”按钮。
+- `DONE-201` EPUB 抽取首版增加 toc/nav 噪声清理：`scripts/import_book.py` 新增导航噪声裁剪与 TOC 文本识别跳过，并补单测。
+- `DONE-202` 拼图页支持“当前过滤条件”一键复制分享链接：`frontend/book.html` 新增复制按钮并回填 `section/title/sort` URL 参数。
+- `DONE-203` E2E 验收脚本补充 `/v1/chunk_context_batch` 命中验证：`accept_end_to_end_flow.py` 增加 warmup + cache_stats 验证并输出 `chunk_context_batch_*` 字段。
+- `DONE-204` Feed 页支持 memory/trace 调试预设（query 一键回填）：`frontend/index.html` 新增预设选择与一键应用，自动生成并回填请求查询参数。
+- `DONE-205` Reader 页支持预取缓存手动清空：`frontend/reader.html` 新增清空按钮并回显清空前后缓存规模。
+- `DONE-206` Feed 调试面板支持最近 5 次 trace 路径历史：`frontend/index.html` 新增历史队列（localStorage 持久化）并在面板展示。
+- `DONE-207` EPUB 抽取支持章节级统计：`import_book.py` 输出 `source_extract_stats`（含 `section_docs_skipped_toc` 等）并补测试。
+- `DONE-208` 拼图页复制链接支持附带书籍标题摘要：`frontend/book.html` 复制内容改为“标题摘要 + URL”两行，便于外部粘贴识别。
+- `DONE-209` E2E 验收脚本增加 feed trace_file 路径存在性校验：`scripts/accept_end_to_end_flow.py` 新增 `feed_trace_file_exists` 字段并在 Markdown/JSONL 回显。
+- `DONE-210` Feed 调试预设支持用户自定义保存：`frontend/index.html` 支持 localStorage 命名预设保存/加载，内置预设与自定义预设同下拉管理。
+- `DONE-211` Reader 预取命中率支持滑动窗口统计：`frontend/reader.html` 新增 `prefetch_hits_recent`（最近 N 次）并与全量命中率并列回显。
+- `DONE-212` Feed trace 历史支持按时间戳排序并展示采集时间：`frontend/index.html` trace 历史升级为 `{path,captured_at_ms}`，调试面板显示 UTC 时间。
+- `DONE-213` EPUB 导入输出增加章节文档名采样：`scripts/import_book.py` 新增 `section_doc_name_samples` 等样本字段并补充单测。
+- `DONE-214` Feed 自定义预设支持删除：`frontend/index.html` 新增“删除当前自定义预设”按钮，内置预设受保护不可删。
+- `DONE-215` Reader 预取指标支持快照复制：`frontend/reader.html` 新增“复制预取指标快照”按钮（Clipboard + prompt 回退）。
+- `DONE-216` Feed 自定义预设覆盖保存前增加确认：同名预设保存时弹窗确认，避免误覆盖。
+- `DONE-217` Feed 自定义预设支持导出/导入 JSON：`frontend/index.html` 新增导出下载与导入合并能力（冲突覆盖确认）。
+- `DONE-218` Reader 预取窗口大小支持 query 可调与回显：`frontend/reader.html` 新增 `prefetch_window` 输入、URL 同步与 queryEcho 展示。
+- `DONE-219` EPUB 导入章节文档采样支持 CLI 参数：`scripts/import_book.py` 新增 `--epub-sample-limit`（1..50）并补单测。
+- `DONE-220` Feed trace 历史支持一键清空：`frontend/index.html` 新增“清空 trace 历史”按钮并本地持久化同步。
+- `DONE-221` Reader 预取指标快照支持 Markdown：`frontend/reader.html` 新增 Markdown 快照复制按钮。
+- `DONE-222` EPUB 导入统计输出 `kept/skipped/empty` 采样计数总览：新增 `section_doc_name_sampled_counts` 字段并补单测。
+- `DONE-223` Feed 预设导入提示细化：`frontend/index.html` 导入完成 notice 回显新增/覆盖/总计。
+- `DONE-224` Reader 预取窗口输入支持实时校验提示：`frontend/reader.html` 在 blur/save 时自动纠正非法 `prefetch_window`。
+- `DONE-225` import_book 输出显式回显 `epub_sample_limit`：`--dry-run` 与成功输出均包含该字段。
+- `DONE-226` Feed 自定义预设导入支持预览模式：`frontend/index.html` 新增“预览导入 JSON（不落盘）”。
+- `DONE-227` Reader 预取快照新增最近 `ctx_source` 序列：JSON/Markdown 快照均回显最近来源轨迹。
+- `DONE-228` EPUB 样本统计新增 basename 版本：`source_extract_stats` 增加 `*_samples_basename` 字段并补单测。
+- `DONE-229` Feed 预设导入预览支持 Markdown：`frontend/index.html` 新增“复制预览 Markdown”按钮并输出 diff 摘要。
+- `DONE-230` Reader 预取快照支持窗口差值：新增 `window_hit_delta`（当前窗口命中率 - 上次快照命中率）。
+- `DONE-231` EPUB basename 统计支持去重计数：新增 `section_doc_basename_unique_counts` 字段并补单测。
+- `DONE-232` Feed 预览支持“仅冲突项”过滤：`frontend/index.html` 新增 `previewConflictOnly` 开关并在 notice/markdown 同步。
+- `DONE-233` Reader 预取快照增加 `hit/miss sparkline`：快照新增 `recent_hit_miss_sparkline` 字段。
+- `DONE-234` EPUB basename 统计支持 TopK：`source_extract_stats` 新增 `section_doc_basename_topk`（按频次降序，名称升序）并补单测。
+- `DONE-235` Feed 预览 Markdown 支持冲突 old/new JSON 片段：冲突项输出结构化 JSON 代码块便于覆盖前复核。
+- `DONE-236` Reader 快照新增命中率等级标签：新增 `recent_hit_rate_level`（low/medium/high）。
+- `DONE-237` EPUB TopK basename 支持最小频次阈值：新增 `--epub-topk-min-count` 与 `section_doc_basename_topk_min_count`。
+- `DONE-238` Feed 预览冲突项支持排序与截断计数：按名称排序并回显 `conflict_list_truncated_count/conflict_detail_truncated_count`。
+- `DONE-239` Reader 等级标签阈值支持 query/localStorage：新增 `level_low_threshold/level_high_threshold` 配置与 URL 回显。
+- `DONE-240` EPUB TopK 支持阈值回显：新增 `section_doc_basename_topk_threshold_applied` 字段。
+- `DONE-241` Feed diff 高亮最小实现：冲突项 Markdown 新增字段级 `+/-/~/=` 标记块。
+- `DONE-242` Reader 等级标签支持自定义文案：`level_label_low/medium/high` 可经 query/localStorage 配置。
+- `DONE-243` EPUB TopK 支持 `topk_limit` 参数化：新增 `--epub-topk-limit` 与 `section_doc_basename_topk_limit` 并补单测。
+- `DONE-244` Feed diff 支持仅变化字段：新增 `diff_changed_only` 开关，隐藏 `=` 未变化字段。
+- `DONE-245` Reader 等级文案支持模板切换：新增 `level_label_template=zh|en`（可与自定义标签叠加）。
+- `DONE-246` EPUB TopK 输出新增 `section_doc_basename_topk_limit_applied` 回显字段。
+- `DONE-247` Feed 冲突详情支持折叠：预览 Markdown 每个冲突项使用 `<details>` 折叠块。
+- `DONE-248` Reader 模板支持占位符格式：新增 `level_label_pattern`（含 `{label}` 占位符）配置。
+- `DONE-249` EPUB TopK 输出新增 `section_doc_basename_topk_total_candidates` 字段并补单测。
+- `DONE-250` Feed diff 支持按字段类型分组：输出 `[bool]/[number]/[text]` 三组。
+- `DONE-251` Reader 快照支持模板来源回显：新增 `level_label_template_source`（query/localStorage/default）。
+- `DONE-252` EPUB TopK 输出新增 `section_doc_basename_topk_other_count`（候选总数减 TopK 行数）并补单测。
+- `DONE-253` Feed diff 支持组内按变化类型排序：每个类型分组内按 `+ -> - -> ~ -> =`，同类型再按字段名排序。
+- `DONE-254` Reader 模板来源写入快照 schema 字段：新增 `snapshot_schema_version` 与 `snapshot_schema_fields.level_label_template_source`。
+- `DONE-255` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio`（TopK 命中占比）并补单测。
+- `DONE-256` Feed diff 输出支持按字段名搜索过滤：新增 `diff_field_filter` 输入并应用到字段级 diff 行过滤。
+- `DONE-257` Reader 快照 schema 增加 `template_source_note` 字段并在 Markdown 快照回显。
+- `DONE-258` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_source` 回显并补单测。
+- `DONE-259` Feed diff 字段过滤支持可选正则模式：新增 `diff_field_filter_regex` 开关与错误回显字段。
+- `DONE-260` Reader 快照 schema 回显 `template_source_enum`（`query|localStorage|default`）。
+- `DONE-261` EPUB TopK 输出支持 `coverage_ratio_precision` 参数化（含 CLI 参数与默认值回显）并补单测。
+- `DONE-262` Feed diff 正则字段过滤支持 flags 输入：新增 `diff_field_filter_regex_flags` 与 applied 回显。
+- `DONE-263` Reader 快照 schema 新增 `template_source_enum_note` 并在 Markdown 回显。
+- `DONE-264` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw`（未四舍五入）并补单测。
+- `DONE-265` Feed diff regex 过滤新增大小写敏感开关（默认不区分大小写，可本地持久化）。
+- `DONE-266` Reader 快照 Markdown 增加 `snapshot_schema_fields_json` 代码块。
+- `DONE-267` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_source`（`cli/default`）并补单测。
+- `DONE-268` Feed diff regex flags 输入增加非法字符即时提示（前端本地校验提示）。
+- `DONE-269` Reader 快照 schema 新增 `template_source_enum_version` 并在 Markdown 回显。
+- `DONE-270` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw_source` 口径字段并补单测。
+- `DONE-271` Feed diff regex 过滤支持“仅匹配前缀”快捷开关并接入预览逻辑。
+- `DONE-272` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_lines` 行数统计回显。
+- `DONE-273` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note` 字段并补单测。
+- `DONE-274` Feed regex flags 提示增加自动去重后预览（提示回显去重后与生效 flags）。
+- `DONE-275` Reader 快照 schema_fields_json 增加 hash 回显：新增 `snapshot_schema_fields_hash` 与 Markdown `snapshot_schema_fields_json_hash`。
+- `DONE-276` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw_source_version`（`v1`）并补单测。
+- `DONE-277` Feed regex 前缀模式回显 `diff_field_filter_regex_compiled_pattern`。
+- `DONE-278` Reader 快照 Markdown 增加 `snapshot_schema_fields_json_first_line` 回显。
+- `DONE-279` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_source`（derived）并补单测。
+- `DONE-280` Feed regex 前缀模式新增 `diff_field_filter_regex_compiled_pattern_source`（`prefix_wrapped|original`）。
+- `DONE-281` Reader 快照 Markdown 增加 `snapshot_schema_fields_json_chars` 字符数统计。
+- `DONE-282` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_raw_source_version_note` 并补单测。
+- `DONE-283` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_note`（prefix/original 说明）。
+- `DONE-284` Reader 快照新增 `snapshot_schema_fields_hash_algorithm`，Markdown 回显 hash 算法。
+- `DONE-285` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_version` 并补单测。
+- `DONE-286` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_length` 回显。
+- `DONE-287` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_hash_length`。
+- `DONE-288` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_source_version` 并补单测。
+- `DONE-289` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective` 回显。
+- `DONE-290` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary` 缩略摘要。
+- `DONE-291` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template` 并补单测。
+- `DONE-292` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_source` 回显。
+- `DONE-293` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_length`。
+- `DONE-294` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_version` 并补单测。
+- `DONE-295` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_note` 回显。
+- `DONE-296` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_source`。
+- `DONE-297` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source` 并补单测。
+- `DONE-298` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_version` 回显。
+- `DONE-299` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_version`。
+- `DONE-300` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_version` 并补单测。
+- `DONE-301` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template` 回显。
+- `DONE-302` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template`。
+- `DONE-303` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note` 并补单测。
+- `DONE-304` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_version` 回显。
+- `DONE-305` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_version`。
+- `DONE-306` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_version` 并补单测。
+- `DONE-307` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source` 回显。
+- `DONE-308` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source`。
+- `DONE-309` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template` 并补单测。
+- `DONE-310` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_version` 回显。
+- `DONE-311` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_version`。
+- `DONE-312` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_version` 并补单测。
+- `DONE-313` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note` 回显。
+- `DONE-314` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note`。
+- `DONE-315` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source` 并补单测。
+- `DONE-316` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_version` 回显。
+- `DONE-317` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_version`。
+- `DONE-318` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_version` 并补单测。
+- `DONE-319` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template` 回显。
+- `DONE-320` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template`。
+- `DONE-321` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note` 并补单测。
+- `DONE-322` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_version` 回显。
+- `DONE-323` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_version`。
+- `DONE-324` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_version` 并补单测。
+- `DONE-325` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source` 回显。
+- `DONE-326` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source`。
+- `DONE-327` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template` 并补单测。
+- `DONE-328` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_version` 回显。
+- `DONE-329` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_version`。
+- `DONE-330` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_version` 并补单测。
+- `DONE-331` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note` 回显。
+- `DONE-332` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note`。
+- `DONE-333` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source` 并补单测。
+- `DONE-334` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_version` 回显。
+- `DONE-335` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_version`。
+- `DONE-336` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_version` 并补单测。
+- `DONE-337` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template` 回显。
+- `DONE-338` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template`。
+- `DONE-339` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source` 并补单测。
+- `DONE-340` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_version` 回显。
+- `DONE-341` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_version`。
+- `DONE-342` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_version` 并补单测。
+- `DONE-343` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source` 回显。
+- `DONE-344` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source`。
+- `DONE-345` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note` 并补单测。
+- `DONE-346` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_version` 回显。
+- `DONE-347` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_version`。
+- `DONE-348` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+- `DONE-349` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note` 回显。
+- `DONE-350` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note`。
+- `DONE-351` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+- `DONE-352` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_version` 回显。
+- `DONE-353` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_version`。
+- `DONE-354` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+- `DONE-361` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source` 回显。
+- `DONE-362` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source`。
+- `DONE-363` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note` 并补单测。
+- `DONE-364` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_version` 回显。
+- `DONE-365` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_version`。
+- `DONE-366` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+- `DONE-367` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note` 回显。
+- `DONE-368` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note`。
+- `DONE-369` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+- `DONE-370` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_version` 回显。
+- `DONE-371` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_version`。
+- `DONE-372` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+- `DONE-373` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template` 回显。
+- `DONE-374` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template`。
+- `DONE-375` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+- `DONE-376` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 回显。
+- `DONE-377` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_version`。
+- `DONE-378` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+- `DONE-355` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template` 回显。
+- `DONE-356` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template`。
+- `DONE-357` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+- `DONE-358` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_version` 回显。
+- `DONE-359` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_version`。
+- `DONE-360` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+- `DONE-379` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note` 回显。
+- `DONE-380` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note`。
+- `DONE-381` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note` 并补单测。
+- `DONE-382` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_version` 回显。
+- `DONE-383` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_version`。
+- `DONE-384` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+- `DONE-385` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template` 回显。
+- `DONE-386` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template`。
+- `DONE-387` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+- `DONE-388` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 回显。
+- `DONE-389` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_version`。
+- `DONE-390` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+- `DONE-391` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 回显。
+- `DONE-392` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source`。
+- `DONE-393` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+- `DONE-394` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 回显。
+- `DONE-395` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version`。
+- `DONE-396` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+- `DONE-397` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 回显。
+- `DONE-398` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note`。
+- `DONE-399` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 并补单测。
+- `DONE-400` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 回显。
+- `DONE-401` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version`。
+- `DONE-402` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+- `DONE-403` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 回显。
+- `DONE-404` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template`。
+- `DONE-405` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+- `DONE-406` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 回显。
+- `DONE-407` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version`。
+- `DONE-408` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+- `DONE-409` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 回显。
+- `DONE-410` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source`。
+- `DONE-411` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+- `DONE-412` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 回显。
+- `DONE-413` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version`。
+- `DONE-414` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+- `DONE-415` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 回显。
+- `DONE-416` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note`。
+- `DONE-417` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note` 并补单测。
+- `DONE-418` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 回显。
+- `DONE-419` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version`。
+- `DONE-420` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_version` 并补单测。
+- `DONE-421` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 回显。
+- `DONE-422` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template`。
+- `DONE-423` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template` 并补单测。
+- `DONE-424` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 回显。
+- `DONE-425` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version`。
+- `DONE-426` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_version` 并补单测。
+- `DONE-427` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 回显。
+- `DONE-428` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source`。
+- `DONE-429` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source` 并补单测。
+- `DONE-430` Feed regex 新增 `diff_field_filter_regex_compiled_pattern_flags_effective_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 回显。
+- `DONE-431` Reader 快照 Markdown 新增 `snapshot_schema_fields_json_summary_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version`。
+- `DONE-432` EPUB TopK 输出新增 `section_doc_basename_topk_coverage_ratio_precision_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_note_template_source_version` 并补单测。
+- `DONE-433` 新增 `scripts/import_library.py`，支持本地目录批量导入（PDF/EPUB/TXT/MD/JSON）与自动书籍类型推断。
+- `DONE-434` 新增 `scripts/first_product.sh`，打通“一键启动 Postgres + 批量导入 + 启服”的首个成品入口。
+- `DONE-435` 新增 `docs/FIRST_PRODUCT.md`，并在 `README.md` 增加 First Product Fast Path。
+- `DONE-436` 修复 PDF 导入 NUL 控制字符导致 Postgres 写入失败问题（`scripts/import_book.py::normalize_text`）。
+- `DONE-437` 新增 `tests/test_import_library.py`，并补充 `tests/test_import_book.py` 对 NUL 清洗的回归测试。
+- `DONE-438` 新增 `scripts/smoke_first_product.sh`，并完成真实环境 smoke 验收（health/feed/frontend 三入口通过）。
+- `DONE-439` Feed 改为双列瀑布流卡片（上封面下标题），并保留点赞/评论/进入阅读交互。
+- `DONE-440` 新增 `/app/toc` 人工目录标注台（批量粘贴目录 + 预览 + 保存）。
+- `DONE-441` 新增 TOC API（`/v1/toc/pending|annotation|preview|save`）并支持本地 annotation 持久化。
+- `DONE-442` 手工目录标注支持回写 `books.metadata.manual_toc*`，并新增 `docs/specs/v0_scope.md` 记录 Deferred 范围。
+- `DONE-443` Feed 增加最小书籍过滤控件（按 `book_title/book_id` 本地过滤，支持 URL/query 与本地持久化）。

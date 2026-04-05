@@ -1,0 +1,75 @@
+{
+  "book_id": "b_sample_001",
+  "chunking_version": "chunking_v1",
+  "render_mode_version": "render_mode_v1",
+  "chunk_count": 2,
+  "stats": {
+    "render_mode_counts": {
+      "crop": 2
+    },
+    "render_reason_counts": {
+      "code_layout_sensitive": 1,
+      "technical_formula_bias": 1,
+      "text_reflow_friendly": 1
+    }
+  },
+  "chunks": [
+    {
+      "chunk_id": "ck_e157a1f4a81e5db3",
+      "section_id": "sec_01",
+      "chunk_index_in_section": 1,
+      "global_index": 1,
+      "title": "2.1 梯度下降的核心直觉",
+      "text": "我们先从一个非常简单的二次函数开始。设损失函数为 L(w)=w^2。\n\nw_{t+1}=w_t-η∂L/∂w\n\n这个更新式告诉我们，每次迭代都朝着损失下降最快的方向前进。",
+      "read_time_sec_est": 18,
+      "has_formula": true,
+      "has_code": false,
+      "has_table": false,
+      "render_mode": "crop",
+      "render_reason": [
+        "text_reflow_friendly",
+        "technical_formula_bias"
+      ],
+      "source_anchor": {
+        "page_start": 12,
+        "page_end": 12,
+        "bbox_union": [
+          0.08,
+          0.18,
+          0.92,
+          0.52
+        ]
+      },
+      "quality_score": 0.9,
+      "prerequisite_chunk_ids": []
+    },
+    {
+      "chunk_id": "ck_84d19cb81a9f7df8",
+      "section_id": "sec_02",
+      "chunk_index_in_section": 1,
+      "global_index": 2,
+      "title": "2.2 一个最小实现",
+      "text": "for step in range(10):\n    grad = 2*w\n    w = w - lr*grad\n\n这段代码展示了最基本的梯度下降流程。",
+      "read_time_sec_est": 17,
+      "has_formula": false,
+      "has_code": true,
+      "has_table": false,
+      "render_mode": "crop",
+      "render_reason": [
+        "code_layout_sensitive"
+      ],
+      "source_anchor": {
+        "page_start": 13,
+        "page_end": 13,
+        "bbox_union": [
+          0.08,
+          0.2,
+          0.92,
+          0.58
+        ]
+      },
+      "quality_score": 0.9,
+      "prerequisite_chunk_ids": []
+    }
+  ]
+}

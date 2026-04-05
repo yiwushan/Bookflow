@@ -1,0 +1,2804 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BookFlow TOC Studio</title>
+  <link rel="stylesheet" href="/app/styles.css">
+</head>
+<body>
+  <main class="page stack">
+    <section class="panel topbar">
+      <div class="row spread">
+        <div>
+          <h1>目录标注台</h1>
+          <p>批量粘贴目录文本，先预览，再保存并立即物化章节 PDF。所有书默认待审核，通过后才进入 Feed。</p>
+        </div>
+        <a class="btn subtle link" href="/app">返回 Feed</a>
+      </div>
+
+      <div class="row">
+        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
+        <input id="limitInput" class="input" type="number" min="1" max="500" value="120" style="width:110px;">
+        <button id="reloadBtn" class="btn primary" type="button">刷新队列</button>
+      </div>
+
+      <div id="notice" class="notice">准备加载队列...</div>
+    </section>
+
+    <section class="panel reader-card">
+      <div class="row">
+        <select id="bookSelect" class="select" style="min-width:320px;"></select>
+        <input id="totalPagesInput" class="input" type="number" min="1" placeholder="total_pages(可选)" style="width:160px;">
+        <input id="pageOffsetInput" class="input" type="number" placeholder="起始页偏移(可负)" value="0" style="width:160px;">
+        <button id="loadSavedBtn" class="btn subtle" type="button">加载已保存目录</button>
+      </div>
+
+      <div id="bookInfo" class="notice">请选择书籍。</div>
+
+      <div class="row">
+        <button id="prevPageBtn" class="btn subtle" type="button">上一页</button>
+        <input id="pageInput" class="input" type="number" min="1" value="1" style="width:120px;">
+        <button id="nextPageBtn" class="btn subtle" type="button">下一页</button>
+        <button id="loadPageBtn" class="btn subtle" type="button">跳转页</button>
+        <button id="setOffsetFirstBtn" class="btn subtle" type="button">此页为偏移后第一页</button>
+        <button id="setTocStartBtn" class="btn subtle" type="button">此页为目录起始页</button>
+        <button id="setTocEndBtn" class="btn subtle" type="button">此页为目录结束页</button>
+        <a id="openPdfBtn" class="btn subtle link" href="#" target="_blank" rel="noopener noreferrer">打开原PDF</a>
+      </div>
+
+      <div class="row">
+        <input id="tocStartPageInput" class="input" type="number" min="1" placeholder="目录起始页" style="width:140px;">
+        <input id="tocEndPageInput" class="input" type="number" min="1" placeholder="目录结束页" style="width:140px;">
+        <button id="batchOcrBtn" class="btn subtle" type="button">批量OCR目录页段</button>
+        <button id="batchLlmBtn" class="btn subtle" type="button">批量LLM目录页段</button>
+        <input id="llmRetryCountInput" class="input" type="number" min="0" max="8" value="2" placeholder="失败重试次数/页" style="width:150px;">
+        <input id="llmRetryBackoffInput" class="input" type="number" min="0" max="10000" value="700" placeholder="重试间隔ms" style="width:140px;">
+        <button id="retryFailedLlmBtn" class="btn subtle" type="button" disabled>重试失败页</button>
+      </div>
+      <div id="llmBatchProgressWrap" class="notice" hidden>
+        <div id="llmBatchProgressText">批量LLM任务未开始。</div>
+        <div class="progress-bar" style="margin-top:8px;"><span id="llmBatchProgressFill" style="width:0%;"></span></div>
+        <div id="llmBatchProgressMeta" class="hint" style="margin-top:6px;"></div>
+        <div id="llmBatchFailedPages" class="hint" style="margin-top:4px;"></div>
+      </div>
+
+      <div id="pagePreviewBox" class="panel toc-preview-box" style="padding:8px; background:#fff;">
+        <img id="pagePreviewImage" alt="pdf-page-preview" style="width:100%; max-height:62vh; object-fit:contain; border:1px solid #ddd;">
+        <div id="ocrSelection" class="toc-ocr-selection" hidden></div>
+      </div>
+
+      <div class="row">
+        <input id="ocrFileInput" class="input" type="file" accept="image/*" style="min-width:300px;">
+        <button id="ocrCurrentPageBtn" class="btn subtle" type="button">OCR当前页</button>
+        <button id="selectOcrRegionBtn" class="btn subtle" type="button">框选区域OCR</button>
+        <button id="ocrBtn" class="btn subtle" type="button">OCR识别截图目录</button>
+        <button id="tidyOcrBtn" class="btn subtle" type="button">一键整理单行页码</button>
+        <button id="convertRomanByOffsetBtn" class="btn subtle" type="button">罗马页换算(封面页-偏移)</button>
+        <button id="sortByPageBtn" class="btn subtle" type="button">按页码排序</button>
+        <button id="appendOcrBtn" class="btn subtle" type="button">增量追加到目录文本</button>
+        <button id="applyOcrBtn" class="btn subtle" type="button">覆盖到目录文本</button>
+      </div>
+
+      <div class="row">
+        <input id="llmBaseUrlInput" class="input" placeholder="LLM Base URL (OpenAI兼容)" style="min-width:260px;">
+        <input id="llmModelInput" class="input" placeholder="LLM Model" style="min-width:180px;">
+        <input id="llmApiKeyInput" class="input" type="password" placeholder="LLM API Key" style="min-width:220px;">
+        <label class="hint"><input id="llmRememberKeyCheck" type="checkbox" checked> 记住API Key</label>
+        <button id="llmSaveConfigBtn" class="btn subtle" type="button">保存LLM配置</button>
+        <button id="llmValidateBtn" class="btn subtle" type="button">检测LLM有效性</button>
+      </div>
+      <div class="row">
+        <textarea id="llmPromptInput" class="textarea" style="min-height:86px;" placeholder="LLM提示词（可编辑）。"></textarea>
+      </div>
+      <div class="row">
+        <button id="llmCurrentPageBtn" class="btn subtle" type="button">LLM识别当前页</button>
+        <button id="llmScreenshotBtn" class="btn subtle" type="button">LLM识别截图</button>
+      </div>
+
+      <textarea id="ocrOutput" class="textarea" placeholder="OCR/LLM结果会显示在这里，也会自动回填到目录文本并预览。"></textarea>
+
+      <textarea id="tocInput" class="textarea" placeholder="示例：
+第1章 绪论 ...... 1
+1.1 背景 ...... 5
+1.2 方法 ...... 12"></textarea>
+
+      <div id="lineDiagSummary" class="notice" hidden></div>
+      <div id="lineDiagWrap" class="table-wrap" hidden>
+        <table class="table toc-line-table">
+          <thead>
+            <tr>
+              <th>行</th>
+              <th>目录原文</th>
+              <th>状态</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody id="lineDiagBody"></tbody>
+        </table>
+      </div>
+
+      <div class="row">
+        <button id="previewBtn" class="btn primary" type="button">预览定位</button>
+        <label class="hint"><input id="autoIndentCheck" type="checkbox" checked> 标题层级缩进显示</label>
+        <button id="saveBtn" class="btn subtle" type="button">保存并生效</button>
+        <button id="approveBtn" class="btn subtle" type="button">审核通过上架Feed</button>
+        <button id="pendingReviewBtn" class="btn subtle" type="button">打回待审核</button>
+        <button id="writeBackBtn" class="btn subtle" type="button">写回原PDF目录并更新校验码</button>
+      </div>
+
+      <div id="previewSummary" class="notice" hidden></div>
+      <div id="previewWarnings" class="notice" hidden></div>
+      <div class="row" id="levelBatchBar">
+        <button id="levelSelectAllBtn" class="btn subtle" type="button">全选层级行</button>
+        <button id="levelClearSelectBtn" class="btn subtle" type="button">清空层级选择</button>
+        <span id="levelSelectHint" class="hint">已选 0 行，可拖动滑条批量改层级（1-5）。</span>
+      </div>
+
+      <div id="tableWrap" class="table-wrap" hidden>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>选</th>
+              <th>#</th>
+              <th>标题</th>
+              <th>层级</th>
+              <th>起始页</th>
+              <th>结束页</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app/app.js"></script>
+  <script>
+    (() => {
+      const App = window.BookFlowApp;
+      const state = {
+        token: App.getStoredToken(),
+        books: [],
+        preview: null,
+        currentPage: 1,
+        tocStartPage: null,
+        tocEndPage: null,
+        autoIndent: true,
+        hiddenWarnings: new Set(),
+        selectedWarnings: new Set(),
+        warningItems: [],
+        ocrSelectMode: false,
+        ocrDrag: null,
+        ocrCrop: null,
+        livePreviewTimer: null,
+        livePreviewSeq: 0,
+        selectedLevelRows: new Set(),
+        llmBatchJobId: "",
+        llmBatchFailedPages: [],
+        llmBatchRunning: false,
+      };
+
+      const tokenInput = document.getElementById("tokenInput");
+      const limitInput = document.getElementById("limitInput");
+      const reloadBtn = document.getElementById("reloadBtn");
+      const noticeEl = document.getElementById("notice");
+      const bookSelect = document.getElementById("bookSelect");
+      const totalPagesInput = document.getElementById("totalPagesInput");
+      const pageOffsetInput = document.getElementById("pageOffsetInput");
+      const loadSavedBtn = document.getElementById("loadSavedBtn");
+      const bookInfo = document.getElementById("bookInfo");
+      const prevPageBtn = document.getElementById("prevPageBtn");
+      const pageInput = document.getElementById("pageInput");
+      const nextPageBtn = document.getElementById("nextPageBtn");
+      const loadPageBtn = document.getElementById("loadPageBtn");
+      const setOffsetFirstBtn = document.getElementById("setOffsetFirstBtn");
+      const setTocStartBtn = document.getElementById("setTocStartBtn");
+      const setTocEndBtn = document.getElementById("setTocEndBtn");
+      const tocStartPageInput = document.getElementById("tocStartPageInput");
+      const tocEndPageInput = document.getElementById("tocEndPageInput");
+      const batchOcrBtn = document.getElementById("batchOcrBtn");
+      const batchLlmBtn = document.getElementById("batchLlmBtn");
+      const llmRetryCountInput = document.getElementById("llmRetryCountInput");
+      const llmRetryBackoffInput = document.getElementById("llmRetryBackoffInput");
+      const retryFailedLlmBtn = document.getElementById("retryFailedLlmBtn");
+      const llmBatchProgressWrap = document.getElementById("llmBatchProgressWrap");
+      const llmBatchProgressText = document.getElementById("llmBatchProgressText");
+      const llmBatchProgressFill = document.getElementById("llmBatchProgressFill");
+      const llmBatchProgressMeta = document.getElementById("llmBatchProgressMeta");
+      const llmBatchFailedPages = document.getElementById("llmBatchFailedPages");
+      const openPdfBtn = document.getElementById("openPdfBtn");
+      const pagePreviewBox = document.getElementById("pagePreviewBox");
+      const pagePreviewImage = document.getElementById("pagePreviewImage");
+      const ocrSelection = document.getElementById("ocrSelection");
+      const ocrFileInput = document.getElementById("ocrFileInput");
+      const ocrCurrentPageBtn = document.getElementById("ocrCurrentPageBtn");
+      const selectOcrRegionBtn = document.getElementById("selectOcrRegionBtn");
+      const ocrBtn = document.getElementById("ocrBtn");
+      const tidyOcrBtn = document.getElementById("tidyOcrBtn");
+      const convertRomanByOffsetBtn = document.getElementById("convertRomanByOffsetBtn");
+      const sortByPageBtn = document.getElementById("sortByPageBtn");
+      const appendOcrBtn = document.getElementById("appendOcrBtn");
+      const applyOcrBtn = document.getElementById("applyOcrBtn");
+      const llmBaseUrlInput = document.getElementById("llmBaseUrlInput");
+      const llmModelInput = document.getElementById("llmModelInput");
+      const llmApiKeyInput = document.getElementById("llmApiKeyInput");
+      const llmRememberKeyCheck = document.getElementById("llmRememberKeyCheck");
+      const llmSaveConfigBtn = document.getElementById("llmSaveConfigBtn");
+      const llmValidateBtn = document.getElementById("llmValidateBtn");
+      const llmPromptInput = document.getElementById("llmPromptInput");
+      const llmCurrentPageBtn = document.getElementById("llmCurrentPageBtn");
+      const llmScreenshotBtn = document.getElementById("llmScreenshotBtn");
+      const ocrOutput = document.getElementById("ocrOutput");
+      const tocInput = document.getElementById("tocInput");
+      const previewBtn = document.getElementById("previewBtn");
+      const autoIndentCheck = document.getElementById("autoIndentCheck");
+      const saveBtn = document.getElementById("saveBtn");
+      const approveBtn = document.getElementById("approveBtn");
+      const pendingReviewBtn = document.getElementById("pendingReviewBtn");
+      const writeBackBtn = document.getElementById("writeBackBtn");
+      const previewSummary = document.getElementById("previewSummary");
+      const previewWarnings = document.getElementById("previewWarnings");
+      const levelSelectAllBtn = document.getElementById("levelSelectAllBtn");
+      const levelClearSelectBtn = document.getElementById("levelClearSelectBtn");
+      const levelSelectHint = document.getElementById("levelSelectHint");
+      const tableWrap = document.getElementById("tableWrap");
+      const tableBody = document.getElementById("tableBody");
+      const lineDiagSummary = document.getElementById("lineDiagSummary");
+      const lineDiagWrap = document.getElementById("lineDiagWrap");
+      const lineDiagBody = document.getElementById("lineDiagBody");
+
+      tokenInput.value = state.token;
+      autoIndentCheck.checked = true;
+      const rememberApiKeyStored = window.localStorage.getItem("bookflow.llm_remember_api_key");
+      const rememberApiKey = rememberApiKeyStored === null ? true : rememberApiKeyStored === "1";
+      llmRememberKeyCheck.checked = rememberApiKey;
+      llmBaseUrlInput.value = window.localStorage.getItem("bookflow.llm_base_url") || "https://api.openai.com";
+      llmModelInput.value = window.localStorage.getItem("bookflow.llm_model") || "gpt-4.1-mini";
+      llmApiKeyInput.value = rememberApiKey ? (window.localStorage.getItem("bookflow.llm_api_key") || "") : "";
+      llmPromptInput.value = window.localStorage.getItem("bookflow.llm_prompt")
+        || "你是目录识别助手。请从图片中提取目录条目，并严格按每行一条返回：标题 ...... 页码。只输出目录行，不要解释。";
+      llmRetryCountInput.value = window.localStorage.getItem("bookflow.llm_retry_count") || "2";
+      llmRetryBackoffInput.value = window.localStorage.getItem("bookflow.llm_retry_backoff_ms") || "700";
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function setNotice(text, isError = false) {
+        noticeEl.className = isError ? "notice error" : "notice";
+        noticeEl.textContent = text;
+      }
+
+      function syncTokenFromInput() {
+        state.token = String(tokenInput.value || "").trim() || App.getStoredToken();
+      }
+
+      function getPageOffset() {
+        const raw = Number(pageOffsetInput.value || 0);
+        if (!Number.isFinite(raw)) {
+          return 0;
+        }
+        return Math.max(-5000, Math.min(5000, Math.trunc(raw)));
+      }
+
+      function parsePositiveInt(value) {
+        const raw = Number(value);
+        if (!Number.isFinite(raw)) {
+          return null;
+        }
+        const n = Math.trunc(raw);
+        return n > 0 ? n : null;
+      }
+
+      function currentPreviewPage() {
+        const raw = Number(pageInput.value || state.currentPage || 1);
+        if (!Number.isFinite(raw)) {
+          return 1;
+        }
+        return Math.max(1, Math.trunc(raw));
+      }
+
+      function syncRangeInputs() {
+        tocStartPageInput.value = state.tocStartPage ? String(state.tocStartPage) : "";
+        tocEndPageInput.value = state.tocEndPage ? String(state.tocEndPage) : "";
+      }
+
+      function getTocPageRange() {
+        const start = parsePositiveInt(tocStartPageInput.value) || parsePositiveInt(state.tocStartPage);
+        const end = parsePositiveInt(tocEndPageInput.value) || parsePositiveInt(state.tocEndPage);
+        if (!start || !end) {
+          return null;
+        }
+        return {
+          start: Math.min(start, end),
+          end: Math.max(start, end),
+        };
+      }
+
+      function readLlmRetryConfig() {
+        const retriesRaw = Number(llmRetryCountInput.value || 2);
+        const backoffRaw = Number(llmRetryBackoffInput.value || 700);
+        const maxRetriesPerPage = Number.isFinite(retriesRaw)
+          ? Math.max(0, Math.min(8, Math.trunc(retriesRaw)))
+          : 2;
+        const retryBackoffMs = Number.isFinite(backoffRaw)
+          ? Math.max(0, Math.min(10000, Math.trunc(backoffRaw)))
+          : 700;
+        llmRetryCountInput.value = String(maxRetriesPerPage);
+        llmRetryBackoffInput.value = String(retryBackoffMs);
+        window.localStorage.setItem("bookflow.llm_retry_count", String(maxRetriesPerPage));
+        window.localStorage.setItem("bookflow.llm_retry_backoff_ms", String(retryBackoffMs));
+        return { maxRetriesPerPage, retryBackoffMs };
+      }
+
+      function waitMs(ms) {
+        return new Promise((resolve) => {
+          window.setTimeout(resolve, Math.max(0, Number(ms) || 0));
+        });
+      }
+
+      function updateRetryFailedButton() {
+        const failedCount = Array.isArray(state.llmBatchFailedPages)
+          ? state.llmBatchFailedPages.length
+          : 0;
+        retryFailedLlmBtn.textContent = failedCount > 0 ? `重试失败页(${failedCount})` : "重试失败页";
+        retryFailedLlmBtn.disabled = state.llmBatchRunning || failedCount <= 0;
+      }
+
+      function renderLlmBatchProgress(snapshot) {
+        const total = Math.max(0, Number(snapshot?.progress_total || 0));
+        const current = Math.max(0, Number(snapshot?.progress_current || 0));
+        const percentRaw = Number(snapshot?.progress_percent || 0);
+        const percent = Number.isFinite(percentRaw)
+          ? Math.max(0, Math.min(100, percentRaw))
+          : (total > 0 ? Math.max(0, Math.min(100, (current / total) * 100)) : 0);
+        const status = String(snapshot?.status || "running");
+        const currentPage = Number(snapshot?.current_page || 0);
+        const currentAttempt = Math.max(0, Number(snapshot?.current_attempt || 0));
+        const maxAttempts = Math.max(0, Number(snapshot?.max_attempts || 0));
+        const phase = String(snapshot?.phase || "running");
+        const lastError = String(snapshot?.last_error || "").trim();
+        const lineCount = Math.max(0, Number(snapshot?.line_count || 0));
+        const failed = Math.max(0, Number(snapshot?.failed_pages || 0));
+        const failedPages = Array.isArray(snapshot?.failed_page_numbers) ? snapshot.failed_page_numbers : [];
+        const statusLabelMap = {
+          running: "处理中",
+          ok: "已完成",
+          partial: "部分完成",
+          error: "失败",
+        };
+        const statusLabel = statusLabelMap[status] || status;
+        const phaseLabelMap = {
+          queued: "排队中",
+          page_running: "准备页",
+          attempting: "识别中",
+          retry_wait: "重试等待",
+          page_done: "页完成",
+          page_failed: "页失败",
+          done: "完成",
+          error: "错误",
+        };
+        const phaseLabel = phaseLabelMap[phase] || phase;
+        llmBatchProgressWrap.hidden = false;
+        llmBatchProgressFill.style.width = `${percent}%`;
+        llmBatchProgressText.textContent = `批量LLM${statusLabel}：${current}/${total} 页 (${percent.toFixed(1)}%)`;
+        const attemptText = maxAttempts > 0
+          ? `${currentAttempt > 0 ? currentAttempt : 1}/${maxAttempts}`
+          : "-";
+        llmBatchProgressMeta.textContent = `当前页: ${currentPage || "-"} · 阶段: ${phaseLabel} · 尝试: ${attemptText} · 识别行数: ${lineCount} · 失败页: ${failed}`;
+        if (failedPages.length > 0) {
+          const preview = failedPages.slice(0, 30).join(", ");
+          const tail = failedPages.length > 30 ? ` ... +${failedPages.length - 30}` : "";
+          const errSuffix = lastError ? ` · 最近错误: ${lastError}` : "";
+          llmBatchFailedPages.textContent = `失败页号: ${preview}${tail}${errSuffix}`;
+        } else if (lastError) {
+          llmBatchFailedPages.textContent = `最近错误: ${lastError}`;
+        } else {
+          llmBatchFailedPages.textContent = "";
+        }
+      }
+
+      async function pollLlmBatchJob(jobId) {
+        const timeoutAt = Date.now() + (12 * 60 * 1000);
+        while (true) {
+          if (Date.now() > timeoutAt) {
+            throw new Error("批量LLM任务轮询超时（超过12分钟）");
+          }
+          const payload = await App.apiFetch(`/v1/toc/llm_extract_pages_job?job_id=${encodeURIComponent(jobId)}`, {
+            token: state.token,
+          });
+          renderLlmBatchProgress(payload);
+          const status = String(payload?.status || "");
+          if (status !== "running") {
+            return payload;
+          }
+          await waitMs(900);
+        }
+      }
+
+      function tidyStandalonePageNumbers(text) {
+        const lines = String(text || "")
+          .split(/\r?\n/)
+          .map((x) => x.trim())
+          .filter((x) => x);
+        const pageOnlyPattern = /^[-—–]?\s*[（(]?(?:\d{1,5}|[ivxlcdmIVXLCDM]{1,12})[)）]?\s*[-—–]?$/;
+        const hasPageTailPattern = /(?:\.{2,}|\s)(?:\d{1,5}|[ivxlcdmIVXLCDM]{1,12})\s*$/i;
+        const sequenceOnlyPattern = /^(?:\d+(?:\.\d+)+|[A-Za-z](?:\.\d+)+)\.?$/;
+        const withSeqPrefixPattern = /^(?:\d+(?:\.\d+)+|[A-Za-z](?:\.\d+)+)\.?\s+\S+/;
+
+        const firstPass = [];
+        let mergedSeqCount = 0;
+        let orphanSeqCount = 0;
+        for (let i = 0; i < lines.length; i += 1) {
+          const line = lines[i];
+          if (!sequenceOnlyPattern.test(line)) {
+            firstPass.push(line);
+            continue;
+          }
+          const next = i + 1 < lines.length ? lines[i + 1] : "";
+          if (!next || pageOnlyPattern.test(next)) {
+            firstPass.push(line);
+            orphanSeqCount += 1;
+            continue;
+          }
+          if (withSeqPrefixPattern.test(next)) {
+            firstPass.push(line);
+            orphanSeqCount += 1;
+            continue;
+          }
+          firstPass.push(`${line.replace(/\.$/, "")} ${next}`.replace(/\s+/g, " ").trim());
+          mergedSeqCount += 1;
+          i += 1;
+        }
+
+        const out = [];
+        let mergedPageCount = 0;
+        let orphanNumberLines = 0;
+        for (const line of firstPass) {
+          if (!pageOnlyPattern.test(line)) {
+            out.push(line);
+            continue;
+          }
+          const match = line.match(/(\d{1,5}|[ivxlcdmIVXLCDM]{1,12})/);
+          const pageText = match ? match[1] : "";
+          if (!pageText || !out.length) {
+            orphanNumberLines += 1;
+            continue;
+          }
+          const prev = out[out.length - 1];
+          if (hasPageTailPattern.test(prev)) {
+            orphanNumberLines += 1;
+            continue;
+          }
+          out[out.length - 1] = `${prev} ...... ${pageText}`;
+          mergedPageCount += 1;
+        }
+
+        return {
+          text: out.join("\n"),
+          mergedCount: mergedPageCount,
+          mergedPageCount,
+          mergedSeqCount,
+          orphanSeqCount,
+          orphanNumberLines,
+        };
+      }
+
+      function romanToInt(token) {
+        const raw = String(token || "").toUpperCase().trim();
+        if (!raw || !/^[IVXLCDM]+$/.test(raw)) {
+          return null;
+        }
+        const values = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+        let total = 0;
+        for (let i = 0; i < raw.length; i += 1) {
+          const val = values[raw[i]];
+          const next = values[raw[i + 1]] || 0;
+          total += val < next ? -val : val;
+        }
+        return total > 0 ? total : null;
+      }
+
+      function detectExplicitLevel(title) {
+        const text = String(title || "").trim();
+        const mNumeric = text.match(/^(\d+(?:\.\d+)*)\b/);
+        if (mNumeric) {
+          return Math.max(1, mNumeric[1].split(".").length);
+        }
+        const mAlpha = text.match(/^([A-Za-z](?:\.\d+)+)\b/);
+        if (mAlpha) {
+          return Math.max(1, mAlpha[1].split(".").length);
+        }
+        if (/^第[一二三四五六七八九十百千0-9]+章/.test(text)) {
+          return 1;
+        }
+        return null;
+      }
+
+      function buildDisplayRows(entries) {
+        const rows = Array.isArray(entries) ? entries : [];
+        const normalized = rows.map((entry, idx) => {
+          const lineNo = Number(entry?.line_no || idx + 1);
+          const title = String(entry?.title || "");
+          const explicitLevel = detectExplicitLevel(title);
+          const manualLevel = Number(entry?.manual_level || 0);
+          const rawLevel = Number(entry?.level || 0);
+          const baseLevel = (Number.isFinite(manualLevel) && manualLevel > 0)
+            ? Math.trunc(manualLevel)
+            : (explicitLevel || (Number.isFinite(rawLevel) && rawLevel > 0 ? Math.trunc(rawLevel) : 1));
+          return {
+            ...entry,
+            line_no: lineNo,
+            title,
+            manual_level: Number.isFinite(manualLevel) ? Math.trunc(manualLevel) : 0,
+            explicit_level: explicitLevel,
+            render_level: Math.max(1, Math.min(5, baseLevel)),
+            start_page: Number(entry?.start_page || 0),
+            end_page: Number(entry?.end_page || entry?.start_page || 0),
+          };
+        });
+
+        // 若某个无编号标题与后续有编号小节在同页，则把该标题自动提升为父级（更像完整目录层次）
+        for (let i = 0; i < normalized.length; i += 1) {
+          const row = normalized[i];
+          if (Number(row.manual_level || 0) > 0) {
+            continue;
+          }
+          if (row.explicit_level) {
+            continue;
+          }
+          let nextExplicit = null;
+          for (let j = i + 1; j < normalized.length; j += 1) {
+            if (normalized[j].start_page !== row.start_page) {
+              break;
+            }
+            if (normalized[j].explicit_level) {
+              nextExplicit = normalized[j].explicit_level;
+              break;
+            }
+          }
+          if (nextExplicit && nextExplicit > 1) {
+            row.render_level = Math.max(1, nextExplicit - 1);
+          }
+        }
+
+        return normalized;
+      }
+
+      function resetWarningState() {
+        state.hiddenWarnings.clear();
+        state.selectedWarnings.clear();
+        state.warningItems = [];
+      }
+
+      function buildWarningItems(preview) {
+        const warnings = (Array.isArray(preview?.warnings) ? preview.warnings : []).filter((w) => {
+          const text = String(w || "");
+          return !text.includes("同页起始:");
+        });
+        return warnings.map((text, idx) => ({
+          key: `w_${idx}`,
+          text: String(text || ""),
+        }));
+      }
+
+      function convertRomanPagesByOffset(text, pageOffset) {
+        const lines = String(text || "").split(/\r?\n/);
+        const out = [];
+        let converted = 0;
+        let nonPositive = 0;
+        for (const rawLine of lines) {
+          const line = String(rawLine || "");
+          // 兼容 OCR 常见格式：
+          // 1) 点线分隔符可能是 . / … / 。 / ． / · / •
+          // 2) 页码前可能带破折号或负号（视觉噪声），这里会自动剥离
+          // 3) 末尾可能带中英文标点
+          const m = line.match(
+            /^(.*?)(\s*(?:\.{2,}|[。．·•…]{2,}|\s+))([\-—–]?\s*[\[(（]?[ivxlcdmIVXLCDM]{1,12}[)\]）]?[.,;:：；。．…]*)\s*$/
+          );
+          if (!m) {
+            out.push(line);
+            continue;
+          }
+          const titlePart = String(m[1] || "").replace(/\s+$/, "");
+          const sep = String(m[2] || " ");
+          const token = String(m[3] || "")
+            .replace(/^[\s\-—–\[(（]+/, "")
+            .replace(/[)\]）\s.,;:：；。．…]+$/, "");
+          const romanVal = romanToInt(token);
+          if (!romanVal) {
+            out.push(line);
+            continue;
+          }
+          const convertedVal = romanVal - Number(pageOffset || 0) + 1;
+          if (convertedVal <= 0) {
+            nonPositive += 1;
+          }
+          const sepOut = /\s$/.test(sep) ? sep : `${sep} `;
+          out.push(`${titlePart}${sepOut}${convertedVal}`);
+          converted += 1;
+        }
+        return {
+          text: out.join("\n"),
+          converted,
+          nonPositive,
+        };
+      }
+
+      function parseTrailingPageForSort(line) {
+        const text = String(line || "");
+        const m = text.match(
+          /^(.*?)(?:\s*(?:\.{2,}|[。．·•…]{2,}|\s+))([\-—–]?\s*[\[(（]?(?:\d{1,5}|[ivxlcdmIVXLCDM]{1,12})[)\]）]?[.,;:：；。．…]*)\s*$/
+        );
+        if (!m) {
+          return null;
+        }
+        const rawToken = String(m[2] || "")
+          .replace(/^[\s\-—–\[(（]+/, "")
+          .replace(/[)\]）\s.,;:：；。．…]+$/, "");
+        if (!rawToken) {
+          return null;
+        }
+        if (/^\d{1,5}$/.test(rawToken)) {
+          return Number(rawToken);
+        }
+        const roman = romanToInt(rawToken);
+        return Number.isFinite(roman) ? roman : null;
+      }
+
+      function sortTocLinesByPage(text) {
+        const lines = String(text || "")
+          .split(/\r?\n/)
+          .map((x) => String(x || "").trim())
+          .filter((x) => x);
+        const sortable = [];
+        const unsortable = [];
+        for (let i = 0; i < lines.length; i += 1) {
+          const line = lines[i];
+          const page = parseTrailingPageForSort(line);
+          if (Number.isFinite(page)) {
+            sortable.push({ line, page: Math.trunc(page), index: i });
+          } else {
+            unsortable.push({ line, index: i });
+          }
+        }
+        sortable.sort((a, b) => {
+          if (a.page !== b.page) {
+            return a.page - b.page;
+          }
+          return a.index - b.index;
+        });
+        const merged = sortable.map((x) => x.line).concat(unsortable.map((x) => x.line));
+        return {
+          text: merged.join("\n"),
+          total: lines.length,
+          sortedCount: sortable.length,
+          unsortedCount: unsortable.length,
+        };
+      }
+
+      function selectedBookId() {
+        return String(bookSelect.value || "").trim();
+      }
+
+      function currentBook() {
+        const id = selectedBookId();
+        return state.books.find((b) => String(b.book_id) === id) || null;
+      }
+
+      function updateBookPdfLink(bookId) {
+        if (!bookId) {
+          openPdfBtn.setAttribute("href", "#");
+          return;
+        }
+        const params = new URLSearchParams();
+        params.set("book_id", String(bookId));
+        params.set("token", state.token || App.getStoredToken());
+        openPdfBtn.setAttribute("href", `/v1/book_pdf?${params.toString()}`);
+      }
+
+      function buildPageImageUrl(bookId, page) {
+        const params = new URLSearchParams();
+        params.set("book_id", String(bookId || ""));
+        params.set("page", String(Math.max(1, Number(page) || 1)));
+        params.set("token", state.token || App.getStoredToken());
+        params.set("_ts", String(Date.now()));
+        return `/v1/book_page_image?${params.toString()}`;
+      }
+
+      async function loadPagePreview(page) {
+        const bookId = selectedBookId();
+        if (!bookId) {
+          pagePreviewImage.removeAttribute("src");
+          state.ocrCrop = null;
+          ocrSelection.hidden = true;
+          return;
+        }
+        const nextPage = Math.max(1, Number(page) || 1);
+        state.currentPage = nextPage;
+        pageInput.value = String(nextPage);
+        state.ocrCrop = null;
+        ocrSelection.hidden = true;
+        pagePreviewImage.src = buildPageImageUrl(bookId, nextPage);
+      }
+
+      function renderBookInfo(book) {
+        if (!book) {
+          bookInfo.className = "notice";
+          bookInfo.textContent = "请选择书籍。";
+          updateBookPdfLink("");
+          return;
+        }
+        const tags = [];
+        if (book.needs_manual_toc) {
+          tags.push("待人工目录");
+        }
+        const reviewStatus = String(book.toc_review_status || "pending_review");
+        if (reviewStatus === "approved") {
+          tags.push("审核:已通过");
+        } else if (reviewStatus === "rejected") {
+          tags.push("审核:驳回");
+        } else {
+          tags.push("审核:待审核");
+        }
+        if (book.materialization_status) {
+          tags.push(`状态:${book.materialization_status}`);
+        }
+        if (book.materialized_chunk_count >= 0) {
+          tags.push(`已物化:${book.materialized_chunk_count}`);
+        }
+        tags.push(`偏移:${book.page_offset || 0}`);
+        bookInfo.className = "notice";
+        bookInfo.textContent = `${book.title || "Untitled"}  |  pages=${book.total_pages || "?"}  |  ${tags.join(" · ")}`;
+        updateBookPdfLink(book.book_id);
+      }
+
+      function renderBookOptions(pending, annotated) {
+        const all = [];
+        const p = Array.isArray(pending) ? pending : [];
+        const a = Array.isArray(annotated) ? annotated : [];
+        for (const row of p) {
+          all.push({ ...row, group: "pending" });
+        }
+        for (const row of a) {
+          all.push({ ...row, group: "annotated" });
+        }
+        state.books = all;
+
+        const html = ['<option value="">请选择书籍</option>'];
+        if (p.length) {
+          html.push('<optgroup label="待审核">');
+          for (const row of p) {
+            html.push(`<option value="${App.escapeHtml(row.book_id)}">${App.escapeHtml(row.title || "Untitled")}</option>`);
+          }
+          html.push("</optgroup>");
+        }
+        if (a.length) {
+          html.push('<optgroup label="已审核">');
+          for (const row of a) {
+            html.push(`<option value="${App.escapeHtml(row.book_id)}">${App.escapeHtml(row.title || "Untitled")}</option>`);
+          }
+          html.push("</optgroup>");
+        }
+        bookSelect.innerHTML = html.join("");
+      }
+
+      function renderWarningPanel(items) {
+        const allItems = Array.isArray(items) ? items : [];
+        const visible = allItems.filter((x) => !state.hiddenWarnings.has(x.key));
+        state.warningItems = visible;
+        if (!visible.length) {
+          previewWarnings.hidden = true;
+          previewWarnings.innerHTML = "";
+          return;
+        }
+
+        previewWarnings.hidden = false;
+        previewWarnings.className = "notice error";
+        const warningRows = visible.map((item) => {
+          const checked = state.selectedWarnings.has(item.key) ? "checked" : "";
+          return `<label class="warn-item"><input class="warn-check" type="checkbox" data-key="${App.escapeHtml(item.key)}" ${checked}> ${App.escapeHtml(item.text)}</label>`;
+        }).join("");
+        previewWarnings.innerHTML = `
+          <div class="row warn-toolbar">
+            <label class="hint"><input id="warnSelectAll" type="checkbox"> 全选警告</label>
+            <button type="button" class="btn subtle" data-action="clear-selected-warnings">清除选中</button>
+            <button type="button" class="btn subtle" data-action="restore-all-warnings">恢复全部</button>
+            <span class="hint">显示 ${visible.length}/${allItems.length}</span>
+          </div>
+          <div class="warn-list">${warningRows}</div>
+        `;
+      }
+
+      function splitNonEmptyLines(text) {
+        const lines = String(text || "").split(/\r?\n/);
+        const out = [];
+        let nonEmptyNo = 0;
+        for (let i = 0; i < lines.length; i += 1) {
+          const raw = String(lines[i] || "");
+          if (!raw.trim()) {
+            continue;
+          }
+          nonEmptyNo += 1;
+          out.push({
+            raw_line_no: i + 1,
+            line_no: nonEmptyNo,
+            text: raw,
+          });
+        }
+        return out;
+      }
+
+      function warningLineNumbers(warningText) {
+        const text = String(warningText || "");
+        const nums = [];
+        const pattern = /(?:^|\b)line=(\d+)/g;
+        let m;
+        while ((m = pattern.exec(text)) !== null) {
+          const n = Number(m[1]);
+          if (Number.isFinite(n) && n > 0) {
+            nums.push(Math.trunc(n));
+          }
+        }
+        return nums;
+      }
+
+      function buildLineDiagnostics(tocText, preview) {
+        const rows = splitNonEmptyLines(tocText);
+        const parsedEntries = Array.isArray(preview?.entries) ? preview.entries : [];
+        const parsedLineNos = new Set();
+        for (let i = 0; i < parsedEntries.length; i += 1) {
+          const entry = parsedEntries[i];
+          const n = Number(entry?.line_no || (i + 1));
+          if (Number.isFinite(n) && n > 0) {
+            parsedLineNos.add(Math.trunc(n));
+          }
+        }
+
+        const warningMap = new Map();
+        const unboundWarnings = [];
+        const warnings = Array.isArray(preview?.warnings) ? preview.warnings : [];
+        for (const warning of warnings) {
+          const text = String(warning || "").trim();
+          if (!text) {
+            continue;
+          }
+          if (text.includes("同页起始:")) {
+            // 同页 2 条是允许的，不作为问题显示
+            continue;
+          }
+          const lineNos = warningLineNumbers(text);
+          if (!lineNos.length) {
+            unboundWarnings.push(text);
+            continue;
+          }
+          for (const lineNo of lineNos) {
+            if (!warningMap.has(lineNo)) {
+              warningMap.set(lineNo, []);
+            }
+            warningMap.get(lineNo).push(text);
+          }
+        }
+
+        const addIssue = (lineNo, text) => {
+          const ln = Math.trunc(Number(lineNo) || 0);
+          if (!Number.isFinite(ln) || ln <= 0) {
+            return;
+          }
+          if (!warningMap.has(ln)) {
+            warningMap.set(ln, []);
+          }
+          const arr = warningMap.get(ln);
+          if (!arr.includes(text)) {
+            arr.push(text);
+          }
+        };
+
+        // 逆序检测：允许同页，不允许后一个页码小于前一个
+        for (let i = 1; i < parsedEntries.length; i += 1) {
+          const prev = parsedEntries[i - 1];
+          const curr = parsedEntries[i];
+          const prevPage = Number(prev?.start_page);
+          const currPage = Number(curr?.start_page);
+          const prevLineNo = Math.trunc(Number(prev?.line_no || i));
+          const currLineNo = Math.trunc(Number(curr?.line_no || (i + 1)));
+          if (!Number.isFinite(prevPage) || !Number.isFinite(currPage)) {
+            continue;
+          }
+          if (currPage < prevPage) {
+            addIssue(
+              currLineNo,
+              `页码逆序: line=${prevLineNo}(${prevPage}) -> line=${currLineNo}(${currPage})`
+            );
+          }
+        }
+
+        // 同页超过 2 条：标为问题
+        const pageLines = new Map();
+        for (let i = 0; i < parsedEntries.length; i += 1) {
+          const entry = parsedEntries[i];
+          const page = Number(entry?.start_page);
+          const lineNo = Number(entry?.line_no || (i + 1));
+          if (!Number.isFinite(page) || !Number.isFinite(lineNo) || lineNo <= 0) {
+            continue;
+          }
+          if (!pageLines.has(page)) {
+            pageLines.set(page, []);
+          }
+          pageLines.get(page).push(Math.trunc(lineNo));
+        }
+        for (const [page, lineNos] of pageLines.entries()) {
+          if (!Array.isArray(lineNos) || lineNos.length <= 2) {
+            continue;
+          }
+          const msg = `同页条目过多: page=${page} 共${lineNos.length}条（允许最多2条）`;
+          for (const lineNo of lineNos) {
+            addIssue(lineNo, msg);
+          }
+        }
+
+        const diagRows = rows.map((line) => {
+          const issues = [];
+          const lineWarnings = warningMap.get(line.line_no) || [];
+          const skipped = !parsedLineNos.has(line.line_no);
+          if (skipped) {
+            issues.push("解析跳过：该行未识别为有效目录条目");
+          }
+          for (const item of lineWarnings) {
+            issues.push(item);
+          }
+          const status = skipped ? "skipped" : (lineWarnings.length ? "warning" : "ok");
+          return {
+            ...line,
+            status,
+            issues,
+          };
+        });
+
+        const problemRows = diagRows.filter((x) => x.status !== "ok");
+        return {
+          rows: diagRows,
+          problemRows,
+          unboundWarnings,
+          problemCount: diagRows.filter((x) => x.status !== "ok").length,
+          skippedCount: diagRows.filter((x) => x.status === "skipped").length,
+          warningCount: diagRows.filter((x) => x.status === "warning").length,
+        };
+      }
+
+      function indexOfLineStart(text, lineNo) {
+        const source = String(text || "");
+        const target = Math.max(1, Math.trunc(Number(lineNo) || 1));
+        if (target <= 1) {
+          return 0;
+        }
+        let line = 1;
+        for (let i = 0; i < source.length; i += 1) {
+          if (source[i] === "\n") {
+            line += 1;
+            if (line === target) {
+              return i + 1;
+            }
+          }
+        }
+        return source.length;
+      }
+
+      function jumpToTocRawLine(rawLineNo) {
+        const text = String(tocInput.value || "");
+        const target = Math.max(1, Math.trunc(Number(rawLineNo) || 1));
+        const start = indexOfLineStart(text, target);
+        let end = text.indexOf("\n", start);
+        if (end < 0) {
+          end = text.length;
+        }
+        tocInput.focus();
+        tocInput.setSelectionRange(start, end);
+        tocInput.scrollTop = Math.max(0, (target - 2) * 22);
+      }
+
+      function removeTocLineByNonEmptyIndex(nonEmptyLineNo) {
+        const target = Math.max(1, Math.trunc(Number(nonEmptyLineNo) || 0));
+        if (!target) {
+          return false;
+        }
+        const mapping = splitNonEmptyLines(String(tocInput.value || ""));
+        const item = mapping.find((x) => Number(x.line_no) === target);
+        if (!item) {
+          return false;
+        }
+        const rawLineNo = Math.max(1, Math.trunc(Number(item.raw_line_no) || 1));
+        const srcLines = String(tocInput.value || "").split(/\r?\n/);
+        if (rawLineNo > srcLines.length) {
+          return false;
+        }
+        srcLines.splice(rawLineNo - 1, 1);
+        tocInput.value = srcLines.join("\n");
+        return true;
+      }
+
+      function removePreviewRow(idx) {
+        if (!state.preview || !Array.isArray(state.preview.entries)) {
+          return;
+        }
+        const n = Math.trunc(Number(idx));
+        if (!Number.isFinite(n) || n < 0 || n >= state.preview.entries.length) {
+          return;
+        }
+        const row = state.preview.entries[n];
+        const lineNo = Math.trunc(Number(row?.line_no || 0));
+        state.preview.entries.splice(n, 1);
+
+        const shifted = new Set();
+        for (const oldIdx of state.selectedLevelRows) {
+          const k = Math.trunc(Number(oldIdx));
+          if (!Number.isFinite(k) || k < 0) {
+            continue;
+          }
+          if (k === n) {
+            continue;
+          }
+          shifted.add(k > n ? k - 1 : k);
+        }
+        state.selectedLevelRows = shifted;
+
+        if (Number.isFinite(Number(state.preview.parsed_count))) {
+          state.preview.parsed_count = Math.max(0, Number(state.preview.parsed_count) - 1);
+        }
+        renderPreview(state.preview);
+
+        const removedFromText = removeTocLineByNonEmptyIndex(lineNo);
+        if (removedFromText) {
+          setNotice(`已删除目录行（第 ${lineNo} 条非空行）。`, false);
+          scheduleLivePreview();
+        } else {
+          setNotice("已从预览中删除该条目。", false);
+        }
+      }
+
+      function renderLineDiagnostics(tocText, preview, options = {}) {
+        const text = String(tocText || "");
+        const errText = String(options.error || "").trim();
+        if (!text.trim()) {
+          lineDiagSummary.hidden = true;
+          lineDiagWrap.hidden = true;
+          lineDiagBody.innerHTML = "";
+          return;
+        }
+
+        if (!preview && !errText) {
+          lineDiagSummary.hidden = true;
+          lineDiagWrap.hidden = true;
+          lineDiagBody.innerHTML = "";
+          return;
+        }
+
+        if (errText) {
+          lineDiagSummary.hidden = false;
+          lineDiagSummary.className = "notice error";
+          lineDiagSummary.textContent = `实时解析失败：${errText}`;
+          lineDiagWrap.hidden = true;
+          lineDiagBody.innerHTML = "";
+          return;
+        }
+
+        const diag = buildLineDiagnostics(text, preview || {});
+        const problemRows = Array.isArray(diag.problemRows) ? diag.problemRows : [];
+        lineDiagSummary.hidden = false;
+        lineDiagSummary.className = diag.problemCount > 0 ? "notice error" : "notice";
+        const summarySuffix = diag.unboundWarnings.length
+          ? ` 未定位行警告 ${diag.unboundWarnings.length} 条。`
+          : "";
+        lineDiagSummary.textContent = `实时解析：共 ${diag.rows.length} 行，仅展示 ${problemRows.length} 条问题行（跳过 ${diag.skippedCount}，警告 ${diag.warningCount}）。${summarySuffix}`;
+        if (!problemRows.length) {
+          lineDiagBody.innerHTML = "";
+          lineDiagWrap.hidden = true;
+          return;
+        }
+        lineDiagBody.innerHTML = problemRows.map((row) => {
+          const statusBadge = row.status === "skipped"
+            ? '<span class="badge line-badge-bad">跳过</span>'
+            : '<span class="badge line-badge-warn">问题</span>';
+          const issueText = row.issues.length
+            ? row.issues.map((x) => App.escapeHtml(x)).join("<br>")
+            : "-";
+          const rowClass = row.status === "skipped" ? "line-row-skipped" : "line-row-warning";
+          return `
+            <tr class="${rowClass}" data-raw-line="${row.raw_line_no}">
+              <td>${row.line_no}<span class="hint">(原${row.raw_line_no})</span></td>
+              <td class="toc-line-text">${App.escapeHtml(row.text)}</td>
+              <td>${statusBadge}</td>
+              <td class="toc-line-issue">${issueText}</td>
+            </tr>
+          `;
+        }).join("");
+        lineDiagWrap.hidden = false;
+      }
+
+      function scheduleLivePreview() {
+        if (state.livePreviewTimer) {
+          window.clearTimeout(state.livePreviewTimer);
+        }
+        state.livePreviewSeq += 1;
+        const currentSeq = state.livePreviewSeq;
+        state.livePreviewTimer = window.setTimeout(() => {
+          void previewToc({ silent: true, seq: currentSeq });
+        }, 320);
+      }
+
+      function normalizeLevelSelection(totalRows) {
+        const total = Math.max(0, Math.trunc(Number(totalRows) || 0));
+        const next = new Set();
+        for (const idx of state.selectedLevelRows) {
+          const n = Math.trunc(Number(idx));
+          if (Number.isFinite(n) && n >= 0 && n < total) {
+            next.add(n);
+          }
+        }
+        state.selectedLevelRows = next;
+      }
+
+      function updateLevelSelectionHint(totalRows) {
+        const selected = state.selectedLevelRows.size;
+        const total = Math.max(0, Math.trunc(Number(totalRows) || 0));
+        if (!levelSelectHint) {
+          return;
+        }
+        levelSelectHint.textContent = `已选 ${selected}/${total} 行，可拖动滑条批量改层级（1-5）。`;
+      }
+
+      function getLevelRowSelection(idx, totalRows) {
+        const nIdx = Math.trunc(Number(idx));
+        if (!Number.isFinite(nIdx) || nIdx < 0) {
+          return [];
+        }
+        normalizeLevelSelection(totalRows);
+        if (state.selectedLevelRows.has(nIdx)) {
+          return Array.from(state.selectedLevelRows.values());
+        }
+        return [nIdx];
+      }
+
+      function syncLevelRowsInDom(rowIndexes, level) {
+        const lv = Math.max(1, Math.min(5, Math.trunc(Number(level) || 1)));
+        for (const idx of rowIndexes) {
+          const n = Math.trunc(Number(idx));
+          if (!Number.isFinite(n) || n < 0) {
+            continue;
+          }
+          const tr = tableBody.querySelector(`tr[data-idx="${n}"]`);
+          if (!(tr instanceof HTMLTableRowElement)) {
+            continue;
+          }
+          const range = tr.querySelector("input.toc-level-range");
+          if (range instanceof HTMLInputElement) {
+            range.value = String(lv);
+          }
+          const valueEl = tr.querySelector(".toc-level-value");
+          if (valueEl) {
+            valueEl.textContent = String(lv);
+          }
+          const titleCell = tr.querySelector(".toc-title-cell");
+          if (titleCell instanceof HTMLElement) {
+            titleCell.style.paddingLeft = `${(lv - 1) * 20}px`;
+          }
+        }
+      }
+
+      function applyLevelToRows(rowIndexes, level, options = {}) {
+        if (!state.preview || !Array.isArray(state.preview.entries)) {
+          return [];
+        }
+        const lv = Math.max(1, Math.min(5, Math.trunc(Number(level) || 1)));
+        const shouldRender = options.render !== false;
+        const touched = [];
+        for (const idx of rowIndexes) {
+          const n = Math.trunc(Number(idx));
+          if (!Number.isFinite(n) || n < 0 || n >= state.preview.entries.length) {
+            continue;
+          }
+          const row = state.preview.entries[n];
+          if (!row || typeof row !== "object") {
+            continue;
+          }
+          row.level = lv;
+          row.manual_level = lv;
+          touched.push(n);
+        }
+        if (!touched.length) {
+          return [];
+        }
+        if (shouldRender) {
+          renderPreview(state.preview);
+        }
+        return touched;
+      }
+
+      function preserveManualLevels(nextPayload) {
+        if (!nextPayload || !Array.isArray(nextPayload.entries)) {
+          return nextPayload;
+        }
+        if (!state.preview || !Array.isArray(state.preview.entries) || !state.preview.entries.length) {
+          return nextPayload;
+        }
+        const manualMap = new Map();
+        const manualLineMap = new Map();
+        for (const oldEntry of state.preview.entries) {
+          const lv = Math.trunc(Number(oldEntry?.manual_level || 0));
+          if (!Number.isFinite(lv) || lv <= 0) {
+            continue;
+          }
+          const lineNo = Math.trunc(Number(oldEntry?.line_no || 0));
+          if (lineNo > 0) {
+            manualLineMap.set(lineNo, Math.max(1, Math.min(5, lv)));
+          }
+          const key = `${Math.trunc(Number(oldEntry?.line_no || 0))}::${String(oldEntry?.title || "").trim().toLowerCase()}`;
+          manualMap.set(key, Math.max(1, Math.min(5, lv)));
+        }
+        if (!manualMap.size && !manualLineMap.size) {
+          return nextPayload;
+        }
+        for (const entry of nextPayload.entries) {
+          const lineNo = Math.trunc(Number(entry?.line_no || 0));
+          if (manualLineMap.has(lineNo)) {
+            const lv = manualLineMap.get(lineNo);
+            entry.level = lv;
+            entry.manual_level = lv;
+            continue;
+          }
+          const key = `${Math.trunc(Number(entry?.line_no || 0))}::${String(entry?.title || "").trim().toLowerCase()}`;
+          if (!manualMap.has(key)) {
+            continue;
+          }
+          const lv = manualMap.get(key);
+          entry.level = lv;
+          entry.manual_level = lv;
+        }
+        return nextPayload;
+      }
+
+      function syncPreviewEditsFromTable() {
+        if (!state.preview || !Array.isArray(state.preview.entries)) {
+          return;
+        }
+        const rows = tableBody.querySelectorAll("tr[data-idx]");
+        for (const tr of rows) {
+          if (!(tr instanceof HTMLTableRowElement)) {
+            continue;
+          }
+          const idx = Math.trunc(Number(tr.getAttribute("data-idx") || -1));
+          if (!Number.isFinite(idx) || idx < 0 || idx >= state.preview.entries.length) {
+            continue;
+          }
+          const row = state.preview.entries[idx];
+          if (!row || typeof row !== "object") {
+            continue;
+          }
+
+          const titleInput = tr.querySelector("input.toc-edit-title");
+          if (titleInput instanceof HTMLInputElement) {
+            const nextTitle = String(titleInput.value || "").trim();
+            row.title = nextTitle || "Untitled";
+          }
+
+          const rangeInput = tr.querySelector("input.toc-level-range");
+          if (rangeInput instanceof HTMLInputElement) {
+            const lv = Math.max(1, Math.min(5, Math.trunc(Number(rangeInput.value || row.level || 1)) || 1));
+            row.level = lv;
+            row.manual_level = lv;
+          }
+        }
+      }
+
+      function renderPreview(preview) {
+        state.preview = preview || null;
+        if (!preview) {
+          previewSummary.hidden = true;
+          previewWarnings.hidden = true;
+          tableWrap.hidden = true;
+          tableBody.innerHTML = "";
+          state.warningItems = [];
+          state.selectedWarnings.clear();
+          state.selectedLevelRows.clear();
+          updateLevelSelectionHint(0);
+          renderLineDiagnostics(String(tocInput.value || ""), null);
+          return;
+        }
+
+        const rawRows = Array.isArray(preview.entries) ? preview.entries : [];
+        const rows = buildDisplayRows(rawRows);
+        normalizeLevelSelection(rows.length);
+        updateLevelSelectionHint(rows.length);
+        const warningItems = buildWarningItems(preview);
+        const visibleWarningCount = warningItems.filter((x) => !state.hiddenWarnings.has(x.key)).length;
+
+        previewSummary.hidden = false;
+        previewSummary.className = "notice";
+        previewSummary.textContent = `解析 ${preview.parsed_count || 0} 条，跳过 ${preview.skipped_count || 0} 条，警告 ${visibleWarningCount} 条。`;
+        renderWarningPanel(warningItems);
+
+        tableBody.innerHTML = rows.map((entry, idx) => {
+          const displayLevel = state.autoIndent ? Math.max(1, Number(entry.render_level || entry.level || 1)) : Math.max(1, Number(entry.level || 1));
+          const clampedLevel = Math.max(1, Math.min(5, Math.trunc(displayLevel) || 1));
+          const indent = (clampedLevel - 1) * 20;
+          const checked = state.selectedLevelRows.has(idx) ? "checked" : "";
+          return `
+            <tr data-start-page="${App.escapeHtml(entry.start_page || "")}" data-idx="${idx}">
+              <td><input class="level-select-check" type="checkbox" data-idx="${idx}" ${checked}></td>
+              <td>${idx + 1}</td>
+              <td><div class="toc-title-cell" style="padding-left:${indent}px;"><input class="toc-edit toc-edit-title" data-idx="${idx}" data-field="title" value="${App.escapeHtml(entry.title || "")}"></div></td>
+              <td>
+                <div class="toc-level-cell">
+                  <input class="toc-level-range" data-idx="${idx}" data-field="level" type="range" min="1" max="5" step="1" value="${App.escapeHtml(clampedLevel)}">
+                  <span class="toc-level-value">${clampedLevel}</span>
+                </div>
+              </td>
+              <td>${App.escapeHtml(entry.start_page || "")}</td>
+              <td>${App.escapeHtml(entry.end_page || "")}</td>
+              <td><button class="btn subtle row-delete-btn" type="button" data-action="delete-row" data-idx="${idx}">删除</button></td>
+            </tr>
+          `;
+        }).join("");
+        tableWrap.hidden = rows.length === 0;
+        renderLineDiagnostics(String(tocInput.value || ""), preview);
+      }
+
+      async function loadQueue(options = {}) {
+        try {
+          syncTokenFromInput();
+          const keepBookId = String(options.keepBookId || "").trim();
+          const limit = Math.max(1, Math.min(500, Number(limitInput.value || 120) || 120));
+          const payload = await App.apiFetch(`/v1/toc/pending?limit=${limit}&compact=1`, { token: state.token });
+          renderBookOptions(payload.pending || [], payload.annotated || []);
+          setNotice(`队列已刷新：待审核=${payload.pending_count || 0}, 已审核=${payload.annotated_count || 0}`, false);
+          if (keepBookId && state.books.some((b) => String(b.book_id) === keepBookId)) {
+            bookSelect.value = keepBookId;
+            renderBookInfo(currentBook());
+          } else if (state.books.length && !selectedBookId()) {
+            bookSelect.value = String(state.books[0].book_id || "");
+            renderBookInfo(currentBook());
+          }
+          renderPreview(null);
+          if (!selectedBookId()) {
+            renderBookInfo(null);
+          }
+          pagePreviewImage.removeAttribute("src");
+          state.ocrCrop = null;
+          ocrSelection.hidden = true;
+          setOcrSelectMode(false);
+          state.tocStartPage = null;
+          state.tocEndPage = null;
+          syncRangeInputs();
+          resetWarningState();
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "加载队列失败";
+          setNotice(`加载队列失败：${msg}`, true);
+        }
+      }
+
+      async function loadSavedAnnotation() {
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        try {
+          const payload = await App.apiFetch(`/v1/toc/annotation?book_id=${encodeURIComponent(bookId)}&compact=1`, { token: state.token });
+          const pageOffset = Math.trunc(Number(payload?.annotation?.page_offset || 0) || 0);
+          const entriesRaw = Array.isArray(payload?.annotation?.entries) ? payload.annotation.entries : [];
+          // 加载已保存目录时，保持“手工层级”优先，并把目录文本回填为“未加偏移”的原始页码，避免再次预览时二次偏移。
+          const entries = entriesRaw.map((x) => {
+            const level = Math.max(1, Math.min(5, Math.trunc(Number(x?.level || 1)) || 1));
+            const startPage = Math.trunc(Number(x?.start_page || 0) || 0);
+            const endPage = Math.trunc(Number(x?.end_page || startPage) || startPage);
+            return {
+              ...x,
+              level,
+              manual_level: level,
+              start_page: startPage,
+              end_page: endPage >= startPage ? endPage : startPage,
+            };
+          });
+          pageOffsetInput.value = String(pageOffset);
+          tocInput.value = entries.map((x) => {
+            const startRaw = Math.trunc(Number(x.start_page || 0)) - pageOffset;
+            return `${x.title} ...... ${startRaw}`;
+          }).join("\n");
+          resetWarningState();
+          renderPreview({
+            parsed_count: entries.length,
+            skipped_count: 0,
+            warnings: payload?.annotation?.warnings || [],
+            entries,
+          });
+          const matchBy = String(payload?.match_by || "");
+          const matchedId = String(payload?.matched_annotation_book_id || "");
+          if (matchBy && matchBy !== "book_id" && matchedId && matchedId !== String(bookId)) {
+            setNotice(`已加载 ${entries.length} 条已保存目录（已从旧书ID自动映射）。`, false);
+          } else {
+            setNotice(`已加载 ${entries.length} 条已保存目录。`, false);
+          }
+        } catch (err) {
+          const status = Number(err?.status || 0);
+          if (status === 404) {
+            const book = currentBook();
+            if (book && !book.has_manual_toc) {
+              setNotice("这本书暂无手工保存目录（可能使用的是 PDF 自带目录）。", true);
+              return;
+            }
+          }
+          const msg = err?.payload?.error?.message || err.message || "加载失败";
+          setNotice(`加载失败：${msg}`, true);
+        }
+      }
+
+      function readSelectedImageAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(new Error("读取图片失败"));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function normalizedRect(startX, startY, endX, endY) {
+        const x = Math.min(startX, endX);
+        const y = Math.min(startY, endY);
+        const w = Math.abs(endX - startX);
+        const h = Math.abs(endY - startY);
+        return { x, y, w, h };
+      }
+
+      function drawSelection(rect) {
+        if (!rect || rect.w < 2 || rect.h < 2) {
+          ocrSelection.hidden = true;
+          return;
+        }
+        const offsetX = pagePreviewImage.offsetLeft || 0;
+        const offsetY = pagePreviewImage.offsetTop || 0;
+        ocrSelection.hidden = false;
+        ocrSelection.style.left = `${rect.x + offsetX}px`;
+        ocrSelection.style.top = `${rect.y + offsetY}px`;
+        ocrSelection.style.width = `${rect.w}px`;
+        ocrSelection.style.height = `${rect.h}px`;
+      }
+
+      function setOcrSelectMode(enabled) {
+        state.ocrSelectMode = !!enabled;
+        if (state.ocrSelectMode) {
+          pagePreviewBox.classList.add("ocr-select-mode");
+          selectOcrRegionBtn.classList.add("primary");
+          selectOcrRegionBtn.classList.remove("subtle");
+          selectOcrRegionBtn.textContent = "框选中（点此退出）";
+        } else {
+          pagePreviewBox.classList.remove("ocr-select-mode");
+          selectOcrRegionBtn.classList.remove("primary");
+          selectOcrRegionBtn.classList.add("subtle");
+          selectOcrRegionBtn.textContent = "框选区域OCR";
+          state.ocrDrag = null;
+        }
+      }
+
+      function ensurePreviewImageReady() {
+        return new Promise((resolve, reject) => {
+          if (pagePreviewImage.complete && pagePreviewImage.naturalWidth > 0) {
+            resolve();
+            return;
+          }
+          const onLoad = () => {
+            pagePreviewImage.removeEventListener("load", onLoad);
+            pagePreviewImage.removeEventListener("error", onError);
+            resolve();
+          };
+          const onError = () => {
+            pagePreviewImage.removeEventListener("load", onLoad);
+            pagePreviewImage.removeEventListener("error", onError);
+            reject(new Error("当前页预览加载失败"));
+          };
+          pagePreviewImage.addEventListener("load", onLoad);
+          pagePreviewImage.addEventListener("error", onError);
+        });
+      }
+
+      function buildDataUrlFromCurrentPreview() {
+        if (!(pagePreviewImage.naturalWidth > 0 && pagePreviewImage.naturalHeight > 0)) {
+          throw new Error("当前页预览不可用");
+        }
+        const displayW = pagePreviewImage.clientWidth || pagePreviewImage.naturalWidth;
+        const displayH = pagePreviewImage.clientHeight || pagePreviewImage.naturalHeight;
+        let sx = 0;
+        let sy = 0;
+        let sw = pagePreviewImage.naturalWidth;
+        let sh = pagePreviewImage.naturalHeight;
+        if (state.ocrCrop && state.ocrCrop.w > 2 && state.ocrCrop.h > 2) {
+          const scaleX = pagePreviewImage.naturalWidth / displayW;
+          const scaleY = pagePreviewImage.naturalHeight / displayH;
+          sx = Math.floor(clamp(state.ocrCrop.x, 0, displayW - 1) * scaleX);
+          sy = Math.floor(clamp(state.ocrCrop.y, 0, displayH - 1) * scaleY);
+          sw = Math.floor(clamp(state.ocrCrop.w, 1, displayW) * scaleX);
+          sh = Math.floor(clamp(state.ocrCrop.h, 1, displayH) * scaleY);
+          sw = clamp(sw, 1, pagePreviewImage.naturalWidth - sx);
+          sh = clamp(sh, 1, pagePreviewImage.naturalHeight - sy);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = sw;
+        canvas.height = sh;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(pagePreviewImage, sx, sy, sw, sh, 0, 0, sw, sh);
+        return canvas.toDataURL("image/png");
+      }
+
+      async function runOcrByDataUrl(imageDataUrl) {
+        const totalPages = Number(totalPagesInput.value || 0);
+        const pageOffset = getPageOffset();
+        const payload = await App.apiFetch("/v1/toc/ocr_extract", {
+          method: "POST",
+          token: state.token,
+          body: {
+            image_data_url: imageDataUrl,
+            total_pages: Number.isFinite(totalPages) && totalPages > 0 ? totalPages : undefined,
+            page_offset: pageOffset,
+          },
+        });
+        const text = String(payload.toc_text || "").trim();
+        ocrOutput.value = text;
+        if (payload.preview) {
+          resetWarningState();
+          renderPreview(payload.preview);
+        }
+        setNotice(`OCR完成：识别 ${payload.line_count || 0} 行。`, false);
+      }
+
+      function persistLlmConfigToLocal(cfg) {
+        window.localStorage.setItem("bookflow.llm_base_url", String(cfg.baseUrl || ""));
+        window.localStorage.setItem("bookflow.llm_model", String(cfg.model || ""));
+        window.localStorage.setItem("bookflow.llm_prompt", String(cfg.prompt || ""));
+        window.localStorage.setItem("bookflow.llm_remember_api_key", cfg.rememberApiKey ? "1" : "0");
+        if (cfg.rememberApiKey) {
+          window.localStorage.setItem("bookflow.llm_api_key", String(cfg.apiKey || ""));
+        } else {
+          window.localStorage.removeItem("bookflow.llm_api_key");
+        }
+      }
+
+      async function saveLlmConfigToServer(cfg, options = {}) {
+        const silent = !!options.silent;
+        syncTokenFromInput();
+        const payload = await App.apiFetch("/v1/toc/llm_config", {
+          method: "POST",
+          token: state.token,
+          body: {
+            base_url: cfg.baseUrl,
+            model: cfg.model,
+            api_key: cfg.apiKey,
+            prompt: cfg.prompt,
+            remember_api_key: !!cfg.rememberApiKey,
+          },
+        });
+        if (!silent) {
+          setNotice(
+            `LLM配置已保存（model=${payload.model || "-"}，配置文件=${payload.config_file || "-"}）。`,
+            false,
+          );
+        }
+        return payload;
+      }
+
+      function summarizeValidation(validation) {
+        const checks = Array.isArray(validation?.checks) ? validation.checks : [];
+        const failed = checks.filter((x) => String(x?.status || "") === "failed");
+        const warn = checks.filter((x) => String(x?.status || "") === "warn");
+        if (!checks.length) {
+          return "未返回检测明细";
+        }
+        if (!failed.length && !warn.length) {
+          return "检测通过";
+        }
+        const failedMsg = failed.slice(0, 2).map((x) => String(x.detail || "").trim()).filter((x) => x).join(" | ");
+        const warnMsg = warn.slice(0, 2).map((x) => String(x.detail || "").trim()).filter((x) => x).join(" | ");
+        if (failedMsg && warnMsg) {
+          return `失败:${failedMsg}; 警告:${warnMsg}`;
+        }
+        if (failedMsg) {
+          return `失败:${failedMsg}`;
+        }
+        return `警告:${warnMsg}`;
+      }
+
+      async function runLlmValidation(options = {}) {
+        const silent = !!options.silent;
+        const cfg = getLlmConfig();
+        if (!cfg.baseUrl || !cfg.model || !cfg.apiKey) {
+          if (!silent) {
+            setNotice("请先填写完整 LLM 配置（base_url/model/api_key）。", true);
+          }
+          return { valid: false, reason: "missing_config" };
+        }
+        const bookId = selectedBookId();
+        const page = Number(pageInput.value || state.currentPage || 1) || 1;
+        let payload;
+        try {
+          payload = await App.apiFetch("/v1/toc/llm_validate", {
+            method: "POST",
+            token: state.token,
+            body: {
+              llm: {
+                base_url: cfg.baseUrl,
+                model: cfg.model,
+                api_key: cfg.apiKey,
+              },
+              prompt: cfg.prompt,
+              remember_config: true,
+              remember_api_key: cfg.rememberApiKey,
+              book_id: bookId || undefined,
+              page: page > 0 ? page : undefined,
+              include_image_probe: true,
+            },
+          });
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "LLM检测失败";
+          if (!silent) {
+            setNotice(`LLM检测失败：${msg}`, true);
+          }
+          return { valid: false, reason: msg, validation: err?.payload?.validation || null };
+        }
+        const validation = payload?.validation || {};
+        const valid = !!validation.valid;
+        const summary = summarizeValidation(validation);
+        if (!silent) {
+          setNotice(valid ? `LLM检测通过：${summary}` : `LLM检测失败：${summary}`, !valid);
+        }
+        return { valid, reason: summary, validation };
+      }
+
+      async function loadLlmConfigFromServer() {
+        syncTokenFromInput();
+        const rememberApiKeyStored = window.localStorage.getItem("bookflow.llm_remember_api_key");
+        const rememberApiKey = rememberApiKeyStored === null ? true : rememberApiKeyStored === "1";
+
+        try {
+          const payload = await App.apiFetch("/v1/toc/llm_config", { token: state.token });
+          // 服务端配置优先，避免旧 localStorage 把模型/地址“锁死”在过期值。
+          const serverBase = String(payload.base_url || "").trim();
+          const serverModel = String(payload.model || "").trim();
+          const serverPrompt = String(payload.prompt || "").trim();
+          const serverApiKey = String(payload.api_key || "").trim();
+
+          if (serverBase) {
+            llmBaseUrlInput.value = serverBase;
+          }
+          if (serverModel) {
+            llmModelInput.value = serverModel;
+          }
+          if (serverPrompt) {
+            llmPromptInput.value = serverPrompt;
+          }
+          if (rememberApiKey) {
+            llmApiKeyInput.value = serverApiKey;
+          } else if (!String(llmApiKeyInput.value || "").trim()) {
+            llmApiKeyInput.value = "";
+          }
+
+          persistLlmConfigToLocal({
+            baseUrl: llmBaseUrlInput.value,
+            model: llmModelInput.value,
+            apiKey: llmApiKeyInput.value,
+            prompt: llmPromptInput.value,
+            rememberApiKey,
+          });
+        } catch (_err) {
+          // 保持静默：离线或后端未更新时继续使用本地配置。
+        }
+      }
+
+      function getLlmConfig() {
+        const baseUrl = String(llmBaseUrlInput.value || "").trim();
+        const model = String(llmModelInput.value || "").trim();
+        const apiKey = String(llmApiKeyInput.value || "").trim();
+        const prompt = String(llmPromptInput.value || "").trim();
+        const rememberApiKey = !!llmRememberKeyCheck.checked;
+        const cfg = { baseUrl, model, apiKey, prompt, rememberApiKey };
+        persistLlmConfigToLocal(cfg);
+        return cfg;
+      }
+
+      async function runLlmByDataUrl(imageDataUrl) {
+        const cfg = getLlmConfig();
+        if (!cfg.baseUrl) {
+          setNotice("请先填写 LLM Base URL。", true);
+          return;
+        }
+        if (!cfg.model) {
+          setNotice("请先填写 LLM Model。", true);
+          return;
+        }
+        if (!cfg.apiKey) {
+          setNotice("请先填写 LLM API Key。", true);
+          return;
+        }
+        try {
+          await saveLlmConfigToServer(cfg, { silent: true });
+        } catch (_err) {
+          // 不阻塞识别流程，后端会继续按请求内配置执行。
+        }
+
+        const totalPages = Number(totalPagesInput.value || 0);
+        const pageOffset = getPageOffset();
+        const body = {
+          image_data_url: imageDataUrl,
+          prompt: cfg.prompt,
+          remember_config: true,
+          remember_api_key: cfg.rememberApiKey,
+          llm: {
+            base_url: cfg.baseUrl,
+            model: cfg.model,
+            api_key: cfg.apiKey,
+          },
+          page_offset: pageOffset,
+        };
+        if (Number.isFinite(totalPages) && totalPages > 0) {
+          body.total_pages = totalPages;
+        }
+
+        const payload = await App.apiFetch("/v1/toc/llm_extract", {
+          method: "POST",
+          token: state.token,
+          body,
+        });
+        const text = String(payload.toc_text || "").trim();
+        if (!text) {
+          setNotice("LLM未返回可用目录文本，请检查截图区域、模型配置或提示词。", true);
+          return;
+        }
+        ocrOutput.value = text;
+        tocInput.value = text;
+        if (payload.preview) {
+          resetWarningState();
+          renderPreview(payload.preview);
+        } else {
+          await previewToc();
+        }
+        const savedPath = String(payload.saved_result_file || "").trim();
+        const savedText = savedPath ? `，结果已保存：${savedPath}` : "";
+        setNotice(`LLM完成：识别 ${payload.line_count || 0} 行（model=${payload.model || "-" }）${savedText}。`, false);
+      }
+
+      async function runOcrFromScreenshot() {
+        const file = ocrFileInput.files && ocrFileInput.files[0];
+        if (!file) {
+          setNotice("请先选择一张目录截图图片。", true);
+          return;
+        }
+        try {
+          const imageDataUrl = await readSelectedImageAsDataUrl(file);
+          await runOcrByDataUrl(imageDataUrl);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "OCR失败";
+          setNotice(`OCR失败：${msg}`, true);
+        }
+      }
+
+      async function runLlmFromScreenshot() {
+        const file = ocrFileInput.files && ocrFileInput.files[0];
+        if (!file) {
+          setNotice("请先选择一张目录截图图片。", true);
+          return;
+        }
+        llmScreenshotBtn.disabled = true;
+        try {
+          const imageDataUrl = await readSelectedImageAsDataUrl(file);
+          await runLlmByDataUrl(imageDataUrl);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "LLM识别失败";
+          setNotice(`LLM识别失败：${msg}`, true);
+        } finally {
+          llmScreenshotBtn.disabled = false;
+        }
+      }
+
+      async function runOcrFromCurrentPage() {
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        if (!pagePreviewImage.getAttribute("src")) {
+          setNotice("请先加载当前页预览。", true);
+          return;
+        }
+        try {
+          await ensurePreviewImageReady();
+          const imageDataUrl = buildDataUrlFromCurrentPreview();
+          await runOcrByDataUrl(imageDataUrl);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "OCR失败";
+          setNotice(`OCR失败：${msg}`, true);
+        }
+      }
+
+      async function runLlmFromCurrentPage() {
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        if (!pagePreviewImage.getAttribute("src")) {
+          setNotice("请先加载当前页预览。", true);
+          return;
+        }
+        llmCurrentPageBtn.disabled = true;
+        try {
+          await ensurePreviewImageReady();
+          const imageDataUrl = buildDataUrlFromCurrentPreview();
+          await runLlmByDataUrl(imageDataUrl);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "LLM识别失败";
+          setNotice(`LLM识别失败：${msg}`, true);
+        } finally {
+          llmCurrentPageBtn.disabled = false;
+        }
+      }
+
+      async function runBatchOcrPages() {
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        const range = getTocPageRange();
+        if (!range) {
+          setNotice("请先设置目录起始页和目录结束页。", true);
+          return;
+        }
+
+        const totalPages =
+          parsePositiveInt(totalPagesInput.value)
+          || parsePositiveInt(currentBook()?.total_pages)
+          || null;
+        if (totalPages && range.start > totalPages) {
+          setNotice(`目录起始页超过总页数：start=${range.start}, total=${totalPages}`, true);
+          return;
+        }
+        const pageStart = range.start;
+        const pageEnd = totalPages ? Math.min(range.end, totalPages) : range.end;
+        state.tocStartPage = pageStart;
+        state.tocEndPage = pageEnd;
+        syncRangeInputs();
+
+        try {
+          const payload = await App.apiFetch("/v1/toc/ocr_extract_pages", {
+            method: "POST",
+            token: state.token,
+            body: {
+              book_id: bookId,
+              page_start: pageStart,
+              page_end: pageEnd,
+              total_pages: totalPages || undefined,
+              page_offset: getPageOffset(),
+            },
+          });
+          ocrOutput.value = String(payload.toc_text || "").trim();
+          if (payload.preview) {
+            resetWarningState();
+            renderPreview(payload.preview);
+          }
+          const failedPages = (Array.isArray(payload.page_results) ? payload.page_results : []).filter((x) => {
+            return String(x?.status || "") !== "ok";
+          }).length;
+          setNotice(
+            `批量OCR完成：页段 ${pageStart}-${pageEnd}，识别 ${payload.line_count || 0} 行，失败页 ${failedPages}。`,
+            false,
+          );
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "批量OCR失败";
+          setNotice(`批量OCR失败：${msg}`, true);
+        }
+      }
+
+      async function applyBatchLlmResult(result, options = {}) {
+        const retryFailedOnly = !!options.retryFailedOnly;
+        const pageStart = Number(options.pageStart || 0);
+        const pageEnd = Number(options.pageEnd || 0);
+        const failedPages = Array.isArray(result?.failed_page_numbers)
+          ? result.failed_page_numbers
+            .map((x) => Number(x))
+            .filter((x) => Number.isFinite(x) && x > 0)
+            .map((x) => Math.trunc(x))
+          : [];
+        state.llmBatchFailedPages = Array.from(new Set(failedPages)).sort((a, b) => a - b);
+        updateRetryFailedButton();
+
+        const text = String(result?.toc_text || "").trim();
+        if (text) {
+          ocrOutput.value = text;
+          tocInput.value = text;
+          if (result.preview) {
+            resetWarningState();
+            renderPreview(result.preview);
+          } else {
+            await previewToc();
+          }
+        }
+
+        const failed = Number(result?.failed_pages || 0);
+        const savedPath = String(result?.saved_result_file || "").trim();
+        const savedText = savedPath ? `，结果已保存：${savedPath}` : "";
+        if (!text) {
+          const topReason = String(result?.failed_reason_top || "").trim();
+          const reasonText = topReason ? `；主因：${topReason}` : "";
+          const failPageText = state.llmBatchFailedPages.length
+            ? `；失败页: ${state.llmBatchFailedPages.join(", ")}`
+            : "";
+          setNotice(`批量LLM未返回可用目录文本（失败页 ${failed}）${reasonText}${failPageText}。`, true);
+          return;
+        }
+        setNotice(
+          retryFailedOnly
+            ? `失败页重试完成：重试 ${result.page_count || 0} 页，识别 ${result.line_count || 0} 行，仍失败 ${failed}${savedText}。`
+            : `批量LLM完成：页段 ${pageStart}-${pageEnd}，识别 ${result.line_count || 0} 行，失败页 ${failed}${savedText}。`,
+          false,
+        );
+      }
+
+      async function runBatchLlmPages(options = {}) {
+        const retryFailedOnly = !!options.retryFailedOnly;
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        const range = getTocPageRange();
+        if (!range) {
+          setNotice("请先设置目录起始页和目录结束页。", true);
+          return;
+        }
+        const cfg = getLlmConfig();
+        if (!cfg.baseUrl || !cfg.model || !cfg.apiKey) {
+          setNotice("请先填写并保存完整的 LLM 配置（base_url/model/api_key）。", true);
+          return;
+        }
+        const retryCfg = readLlmRetryConfig();
+
+        let retryPages = [];
+        if (retryFailedOnly) {
+          retryPages = Array.isArray(state.llmBatchFailedPages)
+            ? state.llmBatchFailedPages
+              .map((x) => Number(x))
+              .filter((x) => Number.isFinite(x) && x > 0)
+              .map((x) => Math.trunc(x))
+            : [];
+          retryPages = Array.from(new Set(retryPages)).sort((a, b) => a - b);
+          if (!retryPages.length) {
+            setNotice("当前没有可重试的失败页。请先跑一次批量LLM。", true);
+            return;
+          }
+        }
+
+        const llmCheck = await runLlmValidation({ silent: true });
+        if (!llmCheck.valid) {
+          const detail = summarizeValidation(llmCheck.validation || {});
+          setNotice(`批量LLM前置检测失败：${detail}`, true);
+          return;
+        }
+
+        const totalPages =
+          parsePositiveInt(totalPagesInput.value)
+          || parsePositiveInt(currentBook()?.total_pages)
+          || null;
+        if (totalPages && range.start > totalPages) {
+          setNotice(`目录起始页超过总页数：start=${range.start}, total=${totalPages}`, true);
+          return;
+        }
+        const pageStart = range.start;
+        const pageEnd = totalPages ? Math.min(range.end, totalPages) : range.end;
+        state.tocStartPage = pageStart;
+        state.tocEndPage = pageEnd;
+        syncRangeInputs();
+
+        state.llmBatchRunning = true;
+        state.llmBatchJobId = "";
+        batchLlmBtn.disabled = true;
+        retryFailedLlmBtn.disabled = true;
+        llmBatchProgressWrap.hidden = false;
+        llmBatchProgressFill.style.width = "0%";
+        llmBatchProgressText.textContent = retryFailedOnly
+          ? `重试失败页任务提交中（${retryPages.length} 页）...`
+          : "批量LLM任务提交中...";
+        llmBatchProgressMeta.textContent = "";
+        llmBatchFailedPages.textContent = "";
+
+        try {
+          await saveLlmConfigToServer(cfg, { silent: true });
+        } catch (_err) {
+          // 不阻塞批量识别。
+        }
+        const requestBody = {
+          book_id: bookId,
+          page_start: pageStart,
+          page_end: pageEnd,
+          pages: retryFailedOnly ? retryPages : undefined,
+          total_pages: totalPages || undefined,
+          page_offset: getPageOffset(),
+          prompt: cfg.prompt,
+          validate_first: true,
+          remember_config: true,
+          remember_api_key: cfg.rememberApiKey,
+          max_retries_per_page: retryCfg.maxRetriesPerPage,
+          retry_backoff_ms: retryCfg.retryBackoffMs,
+          llm: {
+            base_url: cfg.baseUrl,
+            model: cfg.model,
+            api_key: cfg.apiKey,
+          },
+        };
+        try {
+          let startPayload;
+          try {
+            startPayload = await App.apiFetch("/v1/toc/llm_extract_pages_start", {
+              method: "POST",
+              token: state.token,
+              body: requestBody,
+            });
+          } catch (startErr) {
+            const startMsg = String(startErr?.payload?.error?.message || startErr?.message || "").trim();
+            const isPathMissing = Number(startErr?.status || 0) === 404
+              || /path not found/i.test(startMsg);
+            if (!isPathMissing) {
+              throw startErr;
+            }
+            llmBatchProgressText.textContent = "当前后端版本不支持异步任务，正在回退同步批量LLM...";
+            llmBatchProgressMeta.textContent = "建议重启后端到最新代码以获得完整进度条。";
+            llmBatchProgressFill.style.width = "40%";
+            const syncPayload = await App.apiFetch("/v1/toc/llm_extract_pages", {
+              method: "POST",
+              token: state.token,
+              body: requestBody,
+            });
+            llmBatchProgressFill.style.width = "100%";
+            llmBatchProgressText.textContent = "同步批量LLM已完成";
+            llmBatchProgressMeta.textContent = "已自动回退旧接口";
+            await applyBatchLlmResult(syncPayload, {
+              retryFailedOnly,
+              pageStart,
+              pageEnd,
+            });
+            return;
+          }
+
+          // 新版本异步任务链路
+          startPayload = startPayload || {};
+          const jobId = String(startPayload.job_id || "").trim();
+          if (!jobId) {
+            throw new Error("未返回 job_id");
+          }
+          state.llmBatchJobId = jobId;
+          setNotice(
+            retryFailedOnly
+              ? `已提交失败页重试任务：job=${jobId}`
+              : `已提交批量LLM任务：job=${jobId}`,
+            false,
+          );
+
+          const jobSnapshot = await pollLlmBatchJob(jobId);
+          const result = jobSnapshot?.result && typeof jobSnapshot.result === "object" ? jobSnapshot.result : null;
+          if (!result) {
+            const jobErr = String(jobSnapshot?.error_message || "").trim();
+            throw new Error(jobErr || "任务结束但未返回结果");
+          }
+          await applyBatchLlmResult(result, {
+            retryFailedOnly,
+            pageStart,
+            pageEnd,
+          });
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "批量LLM失败";
+          const detail = summarizeValidation(err?.payload?.validation || {});
+          const suffix = detail && detail !== "未返回检测明细" ? `；检测：${detail}` : "";
+          setNotice(`批量LLM失败：${msg}${suffix}`, true);
+        } finally {
+          state.llmBatchRunning = false;
+          batchLlmBtn.disabled = false;
+          updateRetryFailedButton();
+        }
+      }
+
+      async function previewToc(options = {}) {
+        const silent = !!options.silent;
+        const seq = Number(options.seq || 0);
+        const bookId = selectedBookId();
+        const tocText = String(tocInput.value || "").trim();
+        if (!bookId) {
+          if (!silent) {
+            setNotice("请先选择书籍。", true);
+          }
+          renderLineDiagnostics(String(tocInput.value || ""), null, { error: "请先选择书籍后再实时解析。" });
+          return;
+        }
+        if (!tocText) {
+          if (!silent) {
+            setNotice("请先粘贴目录文本。", true);
+          }
+          renderLineDiagnostics("", null);
+          return;
+        }
+
+        const body = { book_id: bookId, toc_text: tocText };
+        const totalPages = Number(totalPagesInput.value || 0);
+        const pageOffset = getPageOffset();
+        if (Number.isFinite(totalPages) && totalPages > 0) {
+          body.total_pages = totalPages;
+        }
+        body.page_offset = pageOffset;
+
+        try {
+          const payload = await App.apiFetch("/v1/toc/preview", {
+            method: "POST",
+            token: state.token,
+            body,
+          });
+          if (silent && seq && seq !== state.livePreviewSeq) {
+            return;
+          }
+          preserveManualLevels(payload);
+          resetWarningState();
+          renderPreview(payload);
+          if (!silent) {
+            setNotice(`预览完成：解析 ${payload.parsed_count || 0} 条。`, false);
+          }
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "预览失败";
+          if (!silent) {
+            setNotice(`预览失败：${msg}`, true);
+          }
+          renderLineDiagnostics(String(tocInput.value || ""), null, { error: msg });
+        }
+      }
+
+      async function saveToc() {
+        if (state.livePreviewTimer) {
+          window.clearTimeout(state.livePreviewTimer);
+          state.livePreviewTimer = null;
+        }
+        // 使未完成的静默预览结果失效，避免覆盖当前人工调整
+        state.livePreviewSeq += 1;
+
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        if (!state.preview || !Array.isArray(state.preview.entries) || !state.preview.entries.length) {
+          await previewToc();
+          if (!state.preview || !Array.isArray(state.preview.entries) || !state.preview.entries.length) {
+            return;
+          }
+        }
+        syncPreviewEditsFromTable();
+
+        try {
+          const payload = await App.apiFetch("/v1/toc/save", {
+            method: "POST",
+            token: state.token,
+            body: {
+              book_id: bookId,
+              entries: state.preview.entries,
+              page_offset: getPageOffset(),
+            },
+          });
+          const failed = Array.isArray(payload.failed_entries) ? payload.failed_entries.length : 0;
+          const warnings = Array.isArray(payload.warnings) ? payload.warnings.length : 0;
+          setNotice(`保存完成：chunks=${payload.materialized_chunks || 0}, pdf=${payload.generated_pdf_count || 0}, failed=${failed}, warnings=${warnings}`, false);
+          await loadQueue();
+          bookSelect.value = bookId;
+          renderBookInfo(currentBook());
+          void loadPagePreview(Number(pageInput.value || 1));
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "保存失败";
+          setNotice(`保存失败：${msg}`, true);
+        }
+      }
+
+      async function setReviewStatus(reviewStatus) {
+        syncTokenFromInput();
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        const status = String(reviewStatus || "").trim();
+        if (!status) {
+          setNotice("review_status 不能为空。", true);
+          return;
+        }
+        approveBtn.disabled = true;
+        pendingReviewBtn.disabled = true;
+        try {
+          const payload = await App.apiFetch("/v1/toc/review", {
+            method: "POST",
+            token: state.token,
+            body: {
+              book_id: bookId,
+              review_status: status,
+            },
+          });
+          const review = String(payload?.toc_review_status || status);
+          const reviewText = review === "approved" ? "已通过" : (review === "rejected" ? "已驳回" : "待审核");
+          setNotice(`审核状态已更新：${reviewText}。`, false);
+          await loadQueue({ keepBookId: bookId });
+          renderBookInfo(currentBook());
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "审核状态更新失败";
+          setNotice(`审核状态更新失败：${msg}`, true);
+        } finally {
+          approveBtn.disabled = false;
+          pendingReviewBtn.disabled = false;
+        }
+      }
+
+      async function writeBackTocToPdf() {
+        syncTokenFromInput();
+        const bookId = selectedBookId();
+        if (!bookId) {
+          setNotice("请先选择书籍。", true);
+          return;
+        }
+        if (state.preview && Array.isArray(state.preview.entries) && state.preview.entries.length) {
+          syncPreviewEditsFromTable();
+        }
+        const body = {
+          book_id: bookId,
+          page_offset: getPageOffset(),
+        };
+        if (state.preview && Array.isArray(state.preview.entries) && state.preview.entries.length) {
+          body.entries = state.preview.entries;
+        }
+
+        writeBackBtn.disabled = true;
+        try {
+          const payload = await App.apiFetch("/v1/toc/write_back", {
+            method: "POST",
+            token: state.token,
+            body,
+          });
+          setNotice(
+            `已写回原PDF目录：outline=${payload.outline_items_written || 0}，新校验码=${payload.new_fingerprint || "-" }，状态已重置为待审核。`,
+            false,
+          );
+          await loadQueue({ keepBookId: bookId });
+          renderBookInfo(currentBook());
+          await loadSavedAnnotation();
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "写回失败";
+          setNotice(`写回失败：${msg}`, true);
+        } finally {
+          writeBackBtn.disabled = false;
+        }
+      }
+
+      async function applyOcrToToc() {
+        const text = String(ocrOutput.value || "").trim();
+        if (!text) {
+          setNotice("OCR结果为空，先执行一次截图OCR。", true);
+          return;
+        }
+        tocInput.value = text;
+        await previewToc();
+      }
+
+      async function appendOcrToToc() {
+        const text = String(ocrOutput.value || "").trim();
+        if (!text) {
+          setNotice("OCR结果为空，先执行一次截图OCR。", true);
+          return;
+        }
+        const current = String(tocInput.value || "");
+        const existingLines = current.split(/\r?\n/).map((x) => x.trim()).filter((x) => x);
+        const incomingLines = text.split(/\r?\n/).map((x) => x.trim()).filter((x) => x);
+        const normalize = (x) => String(x || "").replace(/\s+/g, " ").trim().toLowerCase();
+        const seen = new Set(existingLines.map(normalize));
+        const appended = [];
+        let skipped = 0;
+        for (const line of incomingLines) {
+          const key = normalize(line);
+          if (!key) {
+            continue;
+          }
+          if (seen.has(key)) {
+            skipped += 1;
+            continue;
+          }
+          seen.add(key);
+          appended.push(line);
+        }
+        if (!appended.length) {
+          setNotice(`增量追加完成：新增 0 行，跳过重复 ${skipped} 行。`, false);
+          return;
+        }
+        const merged = existingLines.concat(appended).join("\n");
+        tocInput.value = merged;
+        setNotice(`增量追加完成：新增 ${appended.length} 行，跳过重复 ${skipped} 行。`, false);
+        await previewToc();
+      }
+
+      async function convertRomanByOffsetForCurrentText() {
+        const tocText = String(tocInput.value || "");
+        const ocrText = String(ocrOutput.value || "");
+        const offset = getPageOffset();
+        let target = "toc";
+        let source = tocText;
+        if (!source.trim() && ocrText.trim()) {
+          target = "ocr";
+          source = ocrText;
+        }
+        if (!source.trim()) {
+          setNotice("目录文本为空，先OCR或粘贴目录再执行罗马页换算。", true);
+          return;
+        }
+        const converted = convertRomanPagesByOffset(source, offset);
+        if (!converted.converted) {
+          setNotice("未检测到可换算的罗马页码。", false);
+          return;
+        }
+        if (target === "toc") {
+          tocInput.value = converted.text;
+          await previewToc();
+        } else {
+          ocrOutput.value = converted.text;
+        }
+        setNotice(
+          `罗马页换算完成：转换 ${converted.converted} 条（公式：封面页序号-偏移+1，偏移=${offset}），需人工复核 ${converted.nonPositive} 条。`,
+          false,
+        );
+      }
+
+      async function sortByPageForCurrentText() {
+        const tocText = String(tocInput.value || "").trim();
+        const ocrText = String(ocrOutput.value || "").trim();
+        let target = "toc";
+        let source = tocText;
+        if (!source && ocrText) {
+          target = "ocr";
+          source = ocrText;
+        }
+        if (!source) {
+          setNotice("目录文本为空，先OCR或粘贴目录再排序。", true);
+          return;
+        }
+        const sorted = sortTocLinesByPage(source);
+        if (!sorted.total) {
+          setNotice("没有可排序的目录行。", true);
+          return;
+        }
+        if (target === "toc") {
+          tocInput.value = sorted.text;
+          await previewToc();
+        } else {
+          ocrOutput.value = sorted.text;
+        }
+        setNotice(
+          `按页码排序完成：已排序 ${sorted.sortedCount} 行，未识别页码 ${sorted.unsortedCount} 行（保留在末尾）。`,
+          false,
+        );
+      }
+
+      bookSelect.addEventListener("change", () => {
+        const book = currentBook();
+        renderBookInfo(book);
+        if (book?.total_pages) {
+          totalPagesInput.value = String(book.total_pages);
+        }
+        pageOffsetInput.value = String(Number(book?.page_offset || 0) || 0);
+        state.tocStartPage = null;
+        state.tocEndPage = null;
+        syncRangeInputs();
+        resetWarningState();
+        state.currentPage = 1;
+        state.ocrCrop = null;
+        state.llmBatchFailedPages = [];
+        state.llmBatchJobId = "";
+        state.llmBatchRunning = false;
+        ocrSelection.hidden = true;
+        setOcrSelectMode(false);
+        updateRetryFailedButton();
+        void loadPagePreview(1);
+        if (String(tocInput.value || "").trim()) {
+          scheduleLivePreview();
+        }
+      });
+      reloadBtn.addEventListener("click", () => {
+        void loadQueue();
+      });
+      loadSavedBtn.addEventListener("click", () => {
+        void loadSavedAnnotation();
+      });
+      setOffsetFirstBtn.addEventListener("click", () => {
+        const page = currentPreviewPage();
+        const nextOffset = Math.max(-5000, Math.min(5000, page - 1));
+        pageOffsetInput.value = String(nextOffset);
+        setNotice(`已设置页码偏移=${nextOffset}（当前页 ${page} 视作目录第1页）`, false);
+      });
+      setTocStartBtn.addEventListener("click", () => {
+        state.tocStartPage = currentPreviewPage();
+        syncRangeInputs();
+        setNotice(`目录起始页已设置为 ${state.tocStartPage}`, false);
+      });
+      setTocEndBtn.addEventListener("click", () => {
+        state.tocEndPage = currentPreviewPage();
+        syncRangeInputs();
+        setNotice(`目录结束页已设置为 ${state.tocEndPage}`, false);
+      });
+      tocStartPageInput.addEventListener("change", () => {
+        state.tocStartPage = parsePositiveInt(tocStartPageInput.value);
+        syncRangeInputs();
+      });
+      tocEndPageInput.addEventListener("change", () => {
+        state.tocEndPage = parsePositiveInt(tocEndPageInput.value);
+        syncRangeInputs();
+      });
+      batchOcrBtn.addEventListener("click", () => {
+        void runBatchOcrPages();
+      });
+      batchLlmBtn.addEventListener("click", () => {
+        void runBatchLlmPages();
+      });
+      retryFailedLlmBtn.addEventListener("click", () => {
+        void runBatchLlmPages({ retryFailedOnly: true });
+      });
+      llmRetryCountInput.addEventListener("change", () => {
+        readLlmRetryConfig();
+      });
+      llmRetryBackoffInput.addEventListener("change", () => {
+        readLlmRetryConfig();
+      });
+      prevPageBtn.addEventListener("click", () => {
+        const next = Math.max(1, (Number(pageInput.value || state.currentPage) || 1) - 1);
+        void loadPagePreview(next);
+      });
+      nextPageBtn.addEventListener("click", () => {
+        const next = (Number(pageInput.value || state.currentPage) || 1) + 1;
+        void loadPagePreview(next);
+      });
+      loadPageBtn.addEventListener("click", () => {
+        void loadPagePreview(Number(pageInput.value || 1));
+      });
+      ocrBtn.addEventListener("click", () => {
+        void runOcrFromScreenshot();
+      });
+      ocrCurrentPageBtn.addEventListener("click", () => {
+        void runOcrFromCurrentPage();
+      });
+      llmScreenshotBtn.addEventListener("click", () => {
+        void runLlmFromScreenshot();
+      });
+      llmCurrentPageBtn.addEventListener("click", () => {
+        void runLlmFromCurrentPage();
+      });
+      llmSaveConfigBtn.addEventListener("click", () => {
+        const cfg = getLlmConfig();
+        if (!cfg.baseUrl || !cfg.model) {
+          setNotice("请先填写 LLM Base URL 和 Model。", true);
+          return;
+        }
+        if (!cfg.apiKey && cfg.rememberApiKey) {
+          setNotice("当前勾选了“记住API Key”，请先填写 API Key。", true);
+          return;
+        }
+        void saveLlmConfigToServer(cfg, { silent: false }).catch((err) => {
+          const msg = err?.payload?.error?.message || err.message || "保存LLM配置失败";
+          setNotice(`保存LLM配置失败：${msg}`, true);
+        });
+      });
+      llmValidateBtn.addEventListener("click", () => {
+        llmValidateBtn.disabled = true;
+        void runLlmValidation({ silent: false }).finally(() => {
+          llmValidateBtn.disabled = false;
+        });
+      });
+      llmRememberKeyCheck.addEventListener("change", () => {
+        const cfg = getLlmConfig();
+        if (!cfg.rememberApiKey) {
+          llmApiKeyInput.value = "";
+          persistLlmConfigToLocal({
+            ...cfg,
+            apiKey: "",
+          });
+        }
+      });
+      tidyOcrBtn.addEventListener("click", () => {
+        const current = String(ocrOutput.value || "");
+        if (!current.trim()) {
+          setNotice("OCR结果为空，先执行OCR后再整理。", true);
+          return;
+        }
+        const tidy = tidyStandalonePageNumbers(current);
+        ocrOutput.value = tidy.text;
+        setNotice(
+          `整理完成：序号并入 ${tidy.mergedSeqCount || 0} 条，页码并入 ${tidy.mergedPageCount || 0} 条，序号待人工 ${tidy.orphanSeqCount || 0} 条，页码待人工 ${tidy.orphanNumberLines || 0} 条。`,
+          false,
+        );
+      });
+      convertRomanByOffsetBtn.addEventListener("click", () => {
+        void convertRomanByOffsetForCurrentText();
+      });
+      sortByPageBtn.addEventListener("click", () => {
+        void sortByPageForCurrentText();
+      });
+      selectOcrRegionBtn.addEventListener("click", () => {
+        setOcrSelectMode(!state.ocrSelectMode);
+      });
+      appendOcrBtn.addEventListener("click", () => {
+        void appendOcrToToc();
+      });
+      applyOcrBtn.addEventListener("click", () => {
+        void applyOcrToToc();
+      });
+      previewBtn.addEventListener("click", () => {
+        void previewToc();
+      });
+      tocInput.addEventListener("input", () => {
+        scheduleLivePreview();
+      });
+      pageOffsetInput.addEventListener("input", () => {
+        if (String(tocInput.value || "").trim()) {
+          scheduleLivePreview();
+        }
+      });
+      totalPagesInput.addEventListener("input", () => {
+        if (String(tocInput.value || "").trim()) {
+          scheduleLivePreview();
+        }
+      });
+      autoIndentCheck.addEventListener("change", () => {
+        state.autoIndent = !!autoIndentCheck.checked;
+        if (state.preview) {
+          renderPreview(state.preview);
+        }
+      });
+      levelSelectAllBtn.addEventListener("click", () => {
+        if (!state.preview || !Array.isArray(state.preview.entries)) {
+          return;
+        }
+        state.selectedLevelRows.clear();
+        for (let i = 0; i < state.preview.entries.length; i += 1) {
+          state.selectedLevelRows.add(i);
+        }
+        renderPreview(state.preview);
+      });
+      levelClearSelectBtn.addEventListener("click", () => {
+        state.selectedLevelRows.clear();
+        if (state.preview) {
+          renderPreview(state.preview);
+        } else {
+          updateLevelSelectionHint(0);
+        }
+      });
+      saveBtn.addEventListener("click", () => {
+        void saveToc();
+      });
+      approveBtn.addEventListener("click", () => {
+        void setReviewStatus("approved");
+      });
+      pendingReviewBtn.addEventListener("click", () => {
+        void setReviewStatus("pending_review");
+      });
+      writeBackBtn.addEventListener("click", () => {
+        void writeBackTocToPdf();
+      });
+      previewWarnings.addEventListener("change", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof HTMLInputElement)) {
+          return;
+        }
+        if (target.id === "warnSelectAll") {
+          if (target.checked) {
+            for (const item of state.warningItems) {
+              state.selectedWarnings.add(item.key);
+            }
+          } else {
+            for (const item of state.warningItems) {
+              state.selectedWarnings.delete(item.key);
+            }
+          }
+          renderPreview(state.preview);
+          return;
+        }
+        if (target.classList.contains("warn-check")) {
+          const key = String(target.dataset.key || "");
+          if (!key) {
+            return;
+          }
+          if (target.checked) {
+            state.selectedWarnings.add(key);
+          } else {
+            state.selectedWarnings.delete(key);
+          }
+        }
+      });
+      previewWarnings.addEventListener("click", (evt) => {
+        const el = evt.target;
+        if (!(el instanceof Element)) {
+          return;
+        }
+        const button = el.closest("button[data-action]");
+        if (!button) {
+          return;
+        }
+        const action = String(button.dataset.action || "");
+        if (action === "clear-selected-warnings") {
+          for (const key of state.selectedWarnings) {
+            state.hiddenWarnings.add(key);
+          }
+          state.selectedWarnings.clear();
+          renderPreview(state.preview);
+          return;
+        }
+        if (action === "restore-all-warnings") {
+          resetWarningState();
+          renderPreview(state.preview);
+        }
+      });
+      lineDiagBody.addEventListener("click", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+        const row = target.closest("tr[data-raw-line]");
+        if (!row) {
+          return;
+        }
+        const rawLineNo = Number(row.getAttribute("data-raw-line") || 0);
+        if (!Number.isFinite(rawLineNo) || rawLineNo <= 0) {
+          return;
+        }
+        jumpToTocRawLine(rawLineNo);
+      });
+      tableBody.addEventListener("click", (evt) => {
+        const clickTarget = evt.target;
+        if (clickTarget instanceof Element) {
+          const deleteBtn = clickTarget.closest("button[data-action='delete-row']");
+          if (deleteBtn instanceof HTMLButtonElement) {
+            const idx = Number(deleteBtn.dataset.idx || -1);
+            removePreviewRow(idx);
+            return;
+          }
+        }
+        if (clickTarget instanceof Element && clickTarget.closest("input,textarea,select,button")) {
+          return;
+        }
+        const row = evt.target.closest("tr[data-start-page]");
+        if (!row) {
+          return;
+        }
+        const page = Number(row.dataset.startPage || 1);
+        void loadPagePreview(page);
+      });
+      tableBody.addEventListener("change", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof HTMLInputElement)) {
+          return;
+        }
+        if (!state.preview || !Array.isArray(state.preview.entries)) {
+          return;
+        }
+        if (target.classList.contains("toc-level-range")) {
+          const idx = Number(target.dataset.idx || -1);
+          if (!Number.isInteger(idx) || idx < 0 || idx >= state.preview.entries.length) {
+            return;
+          }
+          const lv = Math.max(1, Math.min(5, Math.trunc(Number(target.value || 1)) || 1));
+          const targets = getLevelRowSelection(idx, state.preview.entries.length);
+          applyLevelToRows(targets, lv, { render: true });
+          return;
+        }
+        if (target.classList.contains("level-select-check")) {
+          const idx = Number(target.dataset.idx || -1);
+          if (!Number.isInteger(idx) || idx < 0 || idx >= state.preview.entries.length) {
+            return;
+          }
+          if (target.checked) {
+            state.selectedLevelRows.add(idx);
+          } else {
+            state.selectedLevelRows.delete(idx);
+          }
+          renderPreview(state.preview);
+          return;
+        }
+        if (!target.classList.contains("toc-edit")) {
+          return;
+        }
+        const idx = Number(target.dataset.idx || -1);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= state.preview.entries.length) {
+          return;
+        }
+        const field = String(target.dataset.field || "");
+        const row = state.preview.entries[idx];
+        if (!row || typeof row !== "object") {
+          return;
+        }
+        if (field === "title") {
+          row.title = String(target.value || "").trim();
+          if (!row.title) {
+            row.title = "Untitled";
+          }
+          renderPreview(state.preview);
+          return;
+        }
+      });
+      tableBody.addEventListener("input", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof HTMLInputElement)) {
+          return;
+        }
+        if (!target.classList.contains("toc-level-range")) {
+          return;
+        }
+        if (!state.preview || !Array.isArray(state.preview.entries)) {
+          return;
+        }
+        const idx = Number(target.dataset.idx || -1);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= state.preview.entries.length) {
+          return;
+        }
+        const lv = Math.max(1, Math.min(5, Math.trunc(Number(target.value || 1)) || 1));
+        const targets = getLevelRowSelection(idx, state.preview.entries.length);
+        const touched = applyLevelToRows(targets, lv, { render: false });
+        syncLevelRowsInDom(touched, lv);
+      });
+      pagePreviewImage.addEventListener("mousedown", (evt) => {
+        if (!state.ocrSelectMode) {
+          return;
+        }
+        evt.preventDefault();
+        const rect = pagePreviewImage.getBoundingClientRect();
+        const startX = clamp(evt.clientX - rect.left, 0, rect.width);
+        const startY = clamp(evt.clientY - rect.top, 0, rect.height);
+        state.ocrDrag = { startX, startY, currentX: startX, currentY: startY };
+        state.ocrCrop = null;
+        drawSelection({ x: startX, y: startY, w: 1, h: 1 });
+      });
+      window.addEventListener("mousemove", (evt) => {
+        if (!state.ocrSelectMode || !state.ocrDrag) {
+          return;
+        }
+        const rect = pagePreviewImage.getBoundingClientRect();
+        const currentX = clamp(evt.clientX - rect.left, 0, rect.width);
+        const currentY = clamp(evt.clientY - rect.top, 0, rect.height);
+        state.ocrDrag.currentX = currentX;
+        state.ocrDrag.currentY = currentY;
+        drawSelection(normalizedRect(state.ocrDrag.startX, state.ocrDrag.startY, currentX, currentY));
+      });
+      window.addEventListener("mouseup", () => {
+        if (!state.ocrSelectMode || !state.ocrDrag) {
+          return;
+        }
+        const rect = normalizedRect(
+          state.ocrDrag.startX,
+          state.ocrDrag.startY,
+          state.ocrDrag.currentX,
+          state.ocrDrag.currentY,
+        );
+        state.ocrDrag = null;
+        if (rect.w < 6 || rect.h < 6) {
+          state.ocrCrop = null;
+          ocrSelection.hidden = true;
+          return;
+        }
+        state.ocrCrop = rect;
+        drawSelection(rect);
+      });
+      window.addEventListener("keydown", (evt) => {
+        if (evt.key === "Escape" && state.ocrSelectMode) {
+          setOcrSelectMode(false);
+        }
+      });
+
+      updateRetryFailedButton();
+      readLlmRetryConfig();
+      void loadLlmConfigFromServer();
+      loadQueue();
+    })();
+  </script>
+</body>
+</html>
