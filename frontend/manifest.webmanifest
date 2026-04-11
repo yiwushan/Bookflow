@@ -1,0 +1,27 @@
+{
+  "id": "/app/",
+  "name": "BookFlow 阅读工作台",
+  "short_name": "BookFlow",
+  "description": "BookFlow 阅读与目录标注工作台",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "lang": "zh-CN",
+  "background_color": "#f6f4ef",
+  "theme_color": "#e45b2f",
+  "icons": [
+    {
+      "src": "/app/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

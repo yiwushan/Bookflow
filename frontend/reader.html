@@ -3,7 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta id="viewportMeta" name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e45b2f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="BookFlow">
   <title>BookFlow Reader</title>
+  <link rel="manifest" href="/app/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/app/icons/icon-192.png">
   <link rel="stylesheet" href="/app/styles.css">
 </head>
 <body>
@@ -15,7 +22,8 @@
           <p>读不懂就回看上一节，读顺了继续下一节。</p>
         </div>
         <div class="row">
-          <a id="backFeedLink" class="btn subtle link" href="/app">返回 Feed</a>
+          <a id="backFeedLink" class="btn subtle link" href="/app/">返回 Feed</a>
+          <button id="installBtn" class="btn subtle install-btn" type="button" hidden>安装应用</button>
           <button id="logoutBtn" class="btn subtle" type="button">退出登录</button>
         </div>
       </div>
@@ -149,6 +157,9 @@
   <script>
     (() => {
       const App = window.BookFlowApp;
+      if (typeof App.initPwa === "function") {
+        App.initPwa({ installButtonId: "installBtn" });
+      }
       if (typeof App.isLoggedIn === "function" && !App.isLoggedIn()) {
         const next = encodeURIComponent(`${window.location.pathname}${window.location.search || ""}`);
         window.location.href = `/app/login.html?next=${next}`;
@@ -1284,10 +1295,10 @@
         }
         // Always jump directly to feed to avoid history edge-cases
         // (e.g. requiring multiple clicks after viewer-mode switches).
-        window.location.href = "/app";
+        window.location.href = "/app/";
       }
 
-      function backToPreviousPage(defaultHref = "/app") {
+      function backToPreviousPage(defaultHref = "/app/") {
         const currentHref = window.location.href;
         if (window.history.length > 1) {
           window.history.back();
@@ -2297,7 +2308,7 @@
             clearFeedSnapshotCache();
             closeArchiveBubble();
             setFlashToast("已取消归档，章节将重新参与 Feed 展示。", "success", 2400);
-            backToPreviousPage("/app");
+            backToPreviousPage("/app/");
           } catch (err) {
             const msg = err?.payload?.error?.message || err.message || "取消归档失败";
             setNotice(`取消归档失败：${msg}`, true);
@@ -2357,7 +2368,7 @@
             removeCurrentChunkFromFeedSnapshot();
             closeArchiveBubble();
             setFlashToast("已归档，章节已从 Feed 隐藏。", "success", 2400);
-            backToPreviousPage("/app");
+            backToPreviousPage("/app/");
           } catch (err) {
             const msg = err?.payload?.error?.message || err.message || "归档失败";
             setNotice(`归档失败：${msg}`, true);

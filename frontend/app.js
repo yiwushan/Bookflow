@@ -7,8 +7,14 @@
   const INTERACTION_BUMP_KEY = "bookflow.interaction.bump.v1";
   const INTERACTION_BUMP_CHANNEL = "bookflow.interaction.bump.channel.v1";
   const FLASH_TOAST_KEY = "bookflow.toast.flash.v1";
+  const PWA_SW_URL = "/app/sw.js";
+  const PWA_SW_SCOPE = "/app/";
   let toastLayerEl = null;
   let toastHideTimer = 0;
+  let pwaBooted = false;
+  let pwaSwRegisterStarted = false;
+  let pwaInstallPromptEvent = null;
+  const pwaInstallButtons = new Set();
 
   function getStoredToken() {
     return String(window.localStorage.getItem(STORAGE_TOKEN_KEY) || "").trim();
@@ -546,6 +552,186 @@
     return payload;
   }
 
+  function isStandaloneDisplay() {
+    const iosStandalone = window.navigator && window.navigator.standalone === true;
+    const mediaStandalone = typeof window.matchMedia === "function"
+      ? window.matchMedia("(display-mode: standalone)").matches
+      : false;
+    return iosStandalone || mediaStandalone;
+  }
+
+  function isLocalhostHostname(hostname) {
+    const text = String(hostname || "").trim().toLowerCase();
+    if (!text) {
+      return false;
+    }
+    if (text === "localhost" || text === "[::1]") {
+      return true;
+    }
+    if (/^127(?:\.\d{1,3}){3}$/.test(text)) {
+      return true;
+    }
+    return text.endsWith(".localhost");
+  }
+
+  function isPwaSecureContext() {
+    if (window.isSecureContext) {
+      return true;
+    }
+    const loc = window.location || {};
+    return isLocalhostHostname(loc.hostname);
+  }
+
+  function canPromptPwaInstall() {
+    return !!pwaInstallPromptEvent;
+  }
+
+  function updateInstallButton(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+      return;
+    }
+    if (isStandaloneDisplay()) {
+      button.hidden = false;
+      button.disabled = true;
+      button.classList.remove("is-ready");
+      button.textContent = "已安装";
+      return;
+    }
+    if (!isPwaSecureContext()) {
+      button.hidden = false;
+      button.disabled = true;
+      button.classList.remove("is-ready");
+      button.textContent = "需 HTTPS";
+      return;
+    }
+    if (canPromptPwaInstall()) {
+      button.hidden = false;
+      button.disabled = false;
+      button.classList.add("is-ready");
+      button.textContent = "安装应用";
+      return;
+    }
+    button.hidden = false;
+    button.disabled = false;
+    button.classList.remove("is-ready");
+    button.textContent = "安装应用";
+  }
+
+  function refreshInstallButtons() {
+    pwaInstallButtons.forEach((button) => {
+      if (!(button instanceof HTMLButtonElement) || !button.isConnected) {
+        pwaInstallButtons.delete(button);
+        return;
+      }
+      updateInstallButton(button);
+    });
+  }
+
+  function bindPwaInstallButton(button) {
+    if (!(button instanceof HTMLButtonElement)) {
+      return () => {};
+    }
+    pwaInstallButtons.add(button);
+    updateInstallButton(button);
+
+    const onClick = async () => {
+      if (isStandaloneDisplay()) {
+        showToast("已安装，可从主屏幕直接打开。", { type: "info", duration: 1600 });
+        return;
+      }
+      if (!canPromptPwaInstall()) {
+        if (!isPwaSecureContext()) {
+          showToast("安装模式需要 HTTPS（或 localhost）。", { type: "info", duration: 2200 });
+          return;
+        }
+        showToast("请稍后再试，或使用浏览器菜单“添加到主屏幕”。", { type: "info", duration: 2200 });
+        return;
+      }
+
+      const promptEvent = pwaInstallPromptEvent;
+      pwaInstallPromptEvent = null;
+      refreshInstallButtons();
+      try {
+        await promptEvent.prompt();
+        const choice = await promptEvent.userChoice;
+        const accepted = String(choice?.outcome || "") === "accepted";
+        if (accepted) {
+          showToast("已发起安装。", { type: "success", duration: 1700 });
+        } else {
+          showToast("已取消安装。", { type: "info", duration: 1400 });
+        }
+      } catch (err) {
+        void err;
+        showToast("安装失败，请使用浏览器菜单安装。", { type: "error", duration: 2400 });
+      } finally {
+        refreshInstallButtons();
+      }
+    };
+
+    button.addEventListener("click", onClick);
+    return () => {
+      button.removeEventListener("click", onClick);
+      pwaInstallButtons.delete(button);
+    };
+  }
+
+  function registerServiceWorker() {
+    if (pwaSwRegisterStarted) {
+      return;
+    }
+    pwaSwRegisterStarted = true;
+    if (!("serviceWorker" in window.navigator)) {
+      return;
+    }
+    if (!isPwaSecureContext()) {
+      return;
+    }
+    const start = () => {
+      window.navigator.serviceWorker.register(PWA_SW_URL, { scope: PWA_SW_SCOPE }).catch((err) => {
+        console.warn("BookFlow PWA service worker registration failed:", err);
+      });
+    };
+    if (window.document.readyState === "complete") {
+      start();
+      return;
+    }
+    window.addEventListener("load", start, { once: true });
+  }
+
+  function bootPwa() {
+    if (pwaBooted) {
+      return;
+    }
+    pwaBooted = true;
+
+    window.addEventListener("beforeinstallprompt", (event) => {
+      event.preventDefault();
+      pwaInstallPromptEvent = event;
+      refreshInstallButtons();
+    });
+
+    window.addEventListener("appinstalled", () => {
+      pwaInstallPromptEvent = null;
+      refreshInstallButtons();
+      showToast("安装完成，可从主屏幕直接打开。", { type: "success", duration: 2000 });
+    });
+
+    registerServiceWorker();
+  }
+
+  function initPwa(options) {
+    bootPwa();
+    const cfg = options && typeof options === "object" ? options : {};
+    const button = cfg.installButton instanceof HTMLButtonElement
+      ? cfg.installButton
+      : (cfg.installButtonId ? window.document.getElementById(String(cfg.installButtonId)) : null);
+    if (button instanceof HTMLButtonElement) {
+      return bindPwaInstallButton(button);
+    }
+    refreshInstallButtons();
+    return () => {};
+  }
+
   function escapeHtml(value) {
     return String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -601,6 +787,7 @@
     setFlashToast,
     consumeFlashToast,
     showFlashToast,
+    initPwa,
     escapeHtml,
     makeFeedReaderUrl,
     makeBookUrl,

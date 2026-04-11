@@ -3,7 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e45b2f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="BookFlow">
   <title>BookFlow 登录</title>
+  <link rel="manifest" href="/app/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/app/icons/icon-192.png">
   <link rel="stylesheet" href="/app/styles.css">
 </head>
 <body>
@@ -19,6 +26,7 @@
       </div>
       <div class="row">
         <button id="loginBtn" class="btn primary" type="button">登录</button>
+        <button id="installBtn" class="btn subtle install-btn" type="button" hidden>安装应用</button>
       </div>
       <div id="notice" class="notice">请输入用户名和密码。</div>
     </section>
@@ -28,6 +36,9 @@
   <script>
     (() => {
       const App = window.BookFlowApp;
+      if (typeof App.initPwa === "function") {
+        App.initPwa({ installButtonId: "installBtn" });
+      }
       const query = App.parseQuery();
       const usernameInput = document.getElementById("usernameInput");
       const passwordInput = document.getElementById("passwordInput");
@@ -42,21 +53,21 @@
       function sanitizeNext(raw) {
         const text = String(raw || "").trim();
         if (!text || !text.startsWith("/")) {
-          return "/app";
+          return "/app/";
         }
         if (text.startsWith("//")) {
-          return "/app";
+          return "/app/";
         }
         if (!text.startsWith("/app")) {
-          return "/app";
+          return "/app/";
         }
         if (text.startsWith("/app/login")) {
-          return "/app";
+          return "/app/";
         }
         return text;
       }
 
-      const nextPath = sanitizeNext(query.next || "/app");
+      const nextPath = sanitizeNext(query.next || "/app/");
       if (App.isLoggedIn()) {
         window.location.href = nextPath;
         return;

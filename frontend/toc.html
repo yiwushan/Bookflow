@@ -3,7 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e45b2f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="BookFlow">
   <title>BookFlow TOC Studio</title>
+  <link rel="manifest" href="/app/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/app/icons/icon-192.png">
   <link rel="stylesheet" href="/app/styles.css">
 </head>
 <body>
@@ -15,7 +22,8 @@
           <p>批量粘贴目录文本，先预览，再保存并立即物化章节 PDF。所有书默认待审核，通过后才进入 Feed。</p>
         </div>
         <div class="row">
-          <a class="btn subtle link" href="/app">返回 Feed</a>
+          <a class="btn subtle link" href="/app/">返回 Feed</a>
+          <button id="installBtn" class="btn subtle install-btn" type="button" hidden>安装应用</button>
           <button id="logoutBtn" class="btn subtle" type="button">退出登录</button>
         </div>
       </div>
@@ -190,6 +198,9 @@
   <script>
     (() => {
       const App = window.BookFlowApp;
+      if (typeof App.initPwa === "function") {
+        App.initPwa({ installButtonId: "installBtn" });
+      }
       if (typeof App.isLoggedIn === "function" && !App.isLoggedIn()) {
         const next = encodeURIComponent(`${window.location.pathname}${window.location.search || ""}`);
         window.location.href = `/app/login.html?next=${next}`;

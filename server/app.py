@@ -6946,6 +6946,8 @@ class BookFlowHandler(BaseHTTPRequestHandler):
 
         mime, _ = mimetypes.guess_type(str(file_path))
         content_type = mime or "application/octet-stream"
+        if file_path.suffix == ".webmanifest":
+            content_type = "application/manifest+json"
         if content_type.startswith("text/"):
             content_type = f"{content_type}; charset=utf-8"
 

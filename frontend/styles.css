@@ -189,6 +189,21 @@ a {
   align-items: center;
 }
 
+.install-btn[hidden] {
+  display: none !important;
+}
+
+.install-btn.is-ready {
+  border-color: rgba(228, 91, 47, 0.4);
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+}
+
+.install-btn:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
 .hint {
   color: var(--ink-soft);
   font-size: 0.84rem;
