@@ -9,11 +9,15 @@
   const FLASH_TOAST_KEY = "bookflow.toast.flash.v1";
   const PWA_SW_URL = "/app/sw.js";
   const PWA_SW_SCOPE = "/app/";
+  const PWA_SPLASH_SESSION_KEY = "bookflow.pwa.splash.v1";
+  const PWA_SPLASH_MIN_MS = 560;
+  const PWA_SPLASH_MAX_MS = 1400;
   let toastLayerEl = null;
   let toastHideTimer = 0;
   let pwaBooted = false;
   let pwaSwRegisterStarted = false;
   let pwaInstallPromptEvent = null;
+  let pwaSplashClosing = false;
   const pwaInstallButtons = new Set();
 
   function getStoredToken() {
@@ -560,6 +564,142 @@
     return iosStandalone || mediaStandalone;
   }
 
+  function currentAppRouteClass() {
+    const path = String(window.location && window.location.pathname ? window.location.pathname : "");
+    if (path === "/app" || path === "/app/" || path === "/" || path === "/app/feed") {
+      return "app-route-feed";
+    }
+    if (path === "/app/reader" || path === "/app/reader.html") {
+      return "app-route-reader";
+    }
+    if (path === "/app/book" || path === "/app/book.html") {
+      return "app-route-book";
+    }
+    if (path === "/app/toc" || path === "/app/toc.html") {
+      return "app-route-toc";
+    }
+    if (path === "/app/login" || path === "/app/login/" || path === "/app/login.html") {
+      return "app-route-login";
+    }
+    return "app-route-generic";
+  }
+
+  function applyDisplayModeClasses() {
+    const root = window.document.documentElement;
+    const body = window.document.body;
+    if (!(root instanceof HTMLElement)) {
+      return;
+    }
+    const standalone = isStandaloneDisplay();
+    root.classList.toggle("app-standalone", standalone);
+    root.classList.toggle("app-browser", !standalone);
+    if (body instanceof HTMLElement) {
+      body.classList.toggle("app-standalone", standalone);
+      body.classList.toggle("app-browser", !standalone);
+      [
+        "app-route-feed",
+        "app-route-reader",
+        "app-route-book",
+        "app-route-toc",
+        "app-route-login",
+        "app-route-generic",
+      ].forEach((name) => body.classList.remove(name));
+      body.classList.add(currentAppRouteClass());
+    }
+  }
+
+  function shouldShowPwaSplash() {
+    if (!isStandaloneDisplay()) {
+      return false;
+    }
+    try {
+      if (window.sessionStorage.getItem(PWA_SPLASH_SESSION_KEY) === "1") {
+        return false;
+      }
+    } catch (err) {
+      void err;
+    }
+    try {
+      const nav = window.performance && typeof window.performance.getEntriesByType === "function"
+        ? window.performance.getEntriesByType("navigation")[0]
+        : null;
+      if (nav && String(nav.type || "") === "back_forward") {
+        return false;
+      }
+    } catch (err) {
+      void err;
+    }
+    return true;
+  }
+
+  function markPwaSplashSeen() {
+    try {
+      window.sessionStorage.setItem(PWA_SPLASH_SESSION_KEY, "1");
+    } catch (err) {
+      void err;
+    }
+  }
+
+  function mountPwaSplash() {
+    if (!shouldShowPwaSplash()) {
+      return;
+    }
+    const body = window.document.body;
+    if (!(body instanceof HTMLElement)) {
+      return;
+    }
+    if (window.document.getElementById("pwaSplashLayer")) {
+      return;
+    }
+
+    markPwaSplashSeen();
+    pwaSplashClosing = false;
+    const startedAt = Date.now();
+    body.classList.add("pwa-splash-active");
+
+    const splash = window.document.createElement("section");
+    splash.id = "pwaSplashLayer";
+    splash.className = "pwa-splash";
+    splash.setAttribute("role", "status");
+    splash.setAttribute("aria-live", "polite");
+    splash.innerHTML = [
+      '<div class="pwa-splash-card">',
+      '  <div class="pwa-splash-logo" aria-hidden="true">BF</div>',
+      '  <h1 class="pwa-splash-title">BookFlow</h1>',
+      '  <p class="pwa-splash-subtitle">正在进入阅读工作台...</p>',
+      "  <div class=\"pwa-splash-loader\" aria-hidden=\"true\"></div>",
+      "</div>",
+    ].join("");
+    body.appendChild(splash);
+
+    const closeSplash = () => {
+      if (pwaSplashClosing) {
+        return;
+      }
+      pwaSplashClosing = true;
+      splash.classList.add("closing");
+      window.setTimeout(() => {
+        if (splash.parentElement) {
+          splash.parentElement.removeChild(splash);
+        }
+        body.classList.remove("pwa-splash-active");
+      }, 240);
+    };
+
+    const settle = () => {
+      const elapsed = Date.now() - startedAt;
+      const remain = Math.max(0, PWA_SPLASH_MIN_MS - elapsed);
+      window.setTimeout(closeSplash, remain);
+    };
+
+    if (window.document.readyState === "complete") {
+      settle();
+    } else {
+      window.addEventListener("load", settle, { once: true });
+    }
+    window.setTimeout(closeSplash, PWA_SPLASH_MAX_MS);
+  }
+
   function isLocalhostHostname(hostname) {
     const text = String(hostname || "").trim().toLowerCase();
     if (!text) {
@@ -704,6 +844,9 @@
     }
     pwaBooted = true;
 
+    applyDisplayModeClasses();
+    mountPwaSplash();
+
     window.addEventListener("beforeinstallprompt", (event) => {
       event.preventDefault();
       pwaInstallPromptEvent = event;
@@ -715,6 +858,23 @@
       refreshInstallButtons();
       showToast("安装完成，可从主屏幕直接打开。", { type: "success", duration: 2000 });
     });
+
+    if (typeof window.matchMedia === "function") {
+      try {
+        const mq = window.matchMedia("(display-mode: standalone)");
+        const onModeChange = () => {
+          applyDisplayModeClasses();
+          refreshInstallButtons();
+        };
+        if (typeof mq.addEventListener === "function") {
+          mq.addEventListener("change", onModeChange);
+        } else if (typeof mq.addListener === "function") {
+          mq.addListener(onModeChange);
+        }
+      } catch (err) {
+        void err;
+      }
+    }
 
     registerServiceWorker();
   }

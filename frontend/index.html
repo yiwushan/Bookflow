@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#e45b2f">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="BookFlow">
   <title>BookFlow Feed</title>
   <link rel="manifest" href="/app/manifest.webmanifest">
@@ -20,7 +20,7 @@
         <div>
           <span class="eyebrow">BookFlow v1-dev</span>
           <h1>BookFlow 阅读信息流</h1>
-          <p>双列封面流：点击卡片进入章节原文 PDF 阅读，互动计数会局部实时刷新。</p>
+          <p class="page-subtitle feed-hero-copy">双列封面流：点击卡片进入章节原文 PDF 阅读，互动计数会局部实时刷新。</p>
         </div>
         <div class="row">
           <a class="btn subtle link" href="/app/toc">目录标注台</a>
@@ -29,7 +29,7 @@
         </div>
       </div>
 
-      <div class="row">
+      <div class="row feed-toolbar-primary">
         <input id="tokenInput" type="hidden">
         <input id="userInput" type="hidden">
         <span id="currentUserLabel" class="hint"></span>
@@ -37,13 +37,13 @@
         <button id="refreshBtn" class="btn primary" type="button">刷新</button>
       </div>
 
-      <div class="row">
+      <div class="row feed-toolbar-admin">
         <input id="exportDirInput" class="input" placeholder="用户导出目录" style="min-width:300px;">
         <button id="exportBtn" class="btn subtle" type="button">导出用户数据</button>
         <button id="booksBtn" class="btn subtle" type="button">查看书库数量</button>
       </div>
 
-      <div class="row">
+      <div class="row feed-toolbar-admin">
         <input id="importDirInput" class="input" placeholder="图书目录路径（本机）" style="min-width:320px;">
         <label class="hint"><input id="importRecursiveSwitch" type="checkbox" checked> 递归子目录</label>
         <select id="importStorageSelect" class="select" style="min-width:140px;">
