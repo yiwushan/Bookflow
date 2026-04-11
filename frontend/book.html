@@ -14,12 +14,16 @@
           <h1>书籍拼图</h1>
           <p>已完成的小节点亮，未读保持灰色，帮助你看见阅读进度。</p>
         </div>
-        <a class="btn subtle link" href="/app">返回 Feed</a>
+        <div class="row">
+          <a id="backLink" class="btn subtle link" href="/app">返回上页</a>
+          <button id="logoutBtn" class="btn subtle" type="button">退出登录</button>
+        </div>
       </div>
 
       <div class="row">
-        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
-        <input id="userInput" class="input" placeholder="user_id (可选)" style="min-width:260px;">
+        <input id="tokenInput" type="hidden">
+        <input id="userInput" type="hidden">
+        <span id="currentUserLabel" class="hint"></span>
         <button id="refreshBtn" class="btn primary" type="button">刷新拼图</button>
       </div>
 
@@ -45,6 +49,11 @@
   <script>
     (() => {
       const App = window.BookFlowApp;
+      if (typeof App.isLoggedIn === "function" && !App.isLoggedIn()) {
+        const next = encodeURIComponent(`${window.location.pathname}${window.location.search || ""}`);
+        window.location.href = `/app/login.html?next=${next}`;
+        return;
+      }
       const query = App.parseQuery();
 
       const state = {
@@ -55,7 +64,10 @@
 
       const tokenInput = document.getElementById("tokenInput");
       const userInput = document.getElementById("userInput");
+      const currentUserLabel = document.getElementById("currentUserLabel");
       const refreshBtn = document.getElementById("refreshBtn");
+      const backLink = document.getElementById("backLink");
+      const logoutBtn = document.getElementById("logoutBtn");
       const bookIdEcho = document.getElementById("bookIdEcho");
       const noticeEl = document.getElementById("notice");
       const bookPanel = document.getElementById("bookPanel");
@@ -66,11 +78,57 @@
 
       tokenInput.value = state.token;
       userInput.value = state.userId || "";
+      if (currentUserLabel instanceof HTMLElement) {
+        const username = typeof App.getStoredUsername === "function" ? App.getStoredUsername() : "";
+        currentUserLabel.textContent = username
+          ? `当前用户：${username}`
+          : (state.userId ? `当前用户：${state.userId.slice(0, 8)}` : "未登录");
+      }
       bookIdEcho.textContent = state.bookId || "(missing)";
+      if (typeof App.showFlashToast === "function") {
+        App.showFlashToast();
+      }
 
       function setNotice(text, isError = false) {
         noticeEl.className = isError ? "notice error" : "notice";
         noticeEl.textContent = text;
+      }
+
+      function navigateBack(defaultHref = "/app") {
+        const currentHref = window.location.href;
+        if (window.history.length > 1) {
+          window.history.back();
+          window.setTimeout(() => {
+            if (window.location.href === currentHref) {
+              window.location.href = defaultHref;
+            }
+          }, 180);
+          return;
+        }
+        window.location.href = defaultHref;
+      }
+
+      function refreshBackLinkHint() {
+        const ref = String(document.referrer || "");
+        const sameOrigin = ref.startsWith(window.location.origin);
+        if (!sameOrigin) {
+          backLink.textContent = "返回 Feed";
+          return;
+        }
+        try {
+          const refUrl = new URL(ref);
+          if (refUrl.pathname === "/app/reader") {
+            backLink.textContent = "返回阅读";
+            return;
+          }
+          if (refUrl.pathname === "/app" || refUrl.pathname === "/" || refUrl.pathname === "/app/feed") {
+            backLink.textContent = "返回 Feed";
+            return;
+          }
+        } catch (err) {
+          void err;
+        }
+        backLink.textContent = "返回上页";
       }
 
       function updateUrl() {
@@ -110,24 +168,36 @@
           const summary = payload.summary || {};
           const total = Number(summary.total_chunks || 0);
           const read = Number(summary.read_chunks || 0);
+          const archived = Math.max(0, Number(summary.archived_chunks || 0));
+          const visible = Math.max(0, Number(summary.visible_chunks ?? (total - archived)));
           const rate = total > 0 ? Math.round((read / total) * 1000) / 10 : 0;
 
           bookTitleEl.textContent = payload.book_title || "未知书籍";
-          summaryLine.textContent = `已完成 ${read}/${total} 小节 · 完成率 ${rate}%`;
+          summaryLine.textContent = `已完成 ${read}/${total} 小节 · 完成率 ${rate}% · 已归档 ${archived} · Feed可见 ${visible}`;
           progressFill.style.width = `${Math.max(0, Math.min(100, rate))}%`;
 
           const tiles = Array.isArray(payload.tiles) ? payload.tiles : [];
           gridEl.innerHTML = tiles.map((tile) => {
             const stateClass = tile.state === "read" ? "read" : "unread";
+            const archiveActive = !!tile.archive_active || String(tile.feed_state || "") === "archived";
+            const archiveClass = archiveActive ? "archived" : "visible";
             const idx = Number(tile.global_index || 0);
+            const readEvents = Math.max(0, Number(tile.read_events || 0));
             const title = App.escapeHtml(tile.chunk_title || "(无标题)");
             const section = App.escapeHtml(tile.section_id || "-");
             const href = makeReaderUrl(tile.chunk_id || "");
+            const readLabel = stateClass === "read"
+              ? `已完成${readEvents > 1 ? ` · ${readEvents}次` : ""}`
+              : "未完成";
+            const feedLabel = archiveActive ? "Feed：已归档" : "Feed：展示中";
             return `
-              <a class="mosaic-tile ${stateClass}" href="${href}">
+              <a class="mosaic-tile ${stateClass} ${archiveClass}" href="${href}">
                 <h3>#${idx} ${title}</h3>
                 <p>${section}</p>
-                <p>${stateClass === "read" ? "已完成" : "未完成"}</p>
+                <div class="mosaic-tile-statuses">
+                  <span class="tile-status ${stateClass}">${readLabel}</span>
+                  <span class="tile-status ${archiveClass}">${feedLabel}</span>
+                </div>
               </a>
             `;
           }).join("");
@@ -153,7 +223,33 @@
         updateUrl();
         loadMosaic();
       });
+      backLink.addEventListener("click", (evt) => {
+        evt.preventDefault();
+        navigateBack("/app");
+      });
+      if (logoutBtn instanceof HTMLButtonElement) {
+        logoutBtn.addEventListener("click", async () => {
+          if (typeof App.authLogout === "function") {
+            await App.authLogout();
+          }
+          window.location.href = "/app/login.html";
+        });
+      }
+      window.addEventListener("pageshow", (evt) => {
+        if (typeof App.showFlashToast === "function") {
+          App.showFlashToast();
+        }
+        const navEntry = (window.performance && typeof window.performance.getEntriesByType === "function")
+          ? window.performance.getEntriesByType("navigation")[0]
+          : null;
+        const isBackForward = !!evt.persisted || (navEntry && navEntry.type === "back_forward");
+        if (!isBackForward) {
+          return;
+        }
+        void loadMosaic();
+      });
 
+      refreshBackLinkHint();
       updateUrl();
       loadMosaic();
     })();

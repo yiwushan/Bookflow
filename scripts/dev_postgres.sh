@@ -33,6 +33,8 @@ echo "[4/9] Apply extension migrations"
 docker exec -i "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" < migrations/0003_metrics_materialized.sql >/dev/null
 docker exec -i "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" < migrations/0004_interaction_rejections.sql >/dev/null
 docker exec -i "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" < migrations/0006_reading_progress_trigger.sql >/dev/null
+docker exec -i "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" < migrations/0009_add_unlike_event_type.sql >/dev/null
+docker exec -i "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" < migrations/0010_drop_section_complete_daily_unique.sql >/dev/null
 
 echo "[5/9] Apply dev seed"
 docker exec -i "${CONTAINER_NAME}" psql -U "${PG_USER}" -d "${PG_DB}" < migrations/0002_seed_dev.sql >/dev/null

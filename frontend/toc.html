@@ -14,11 +14,15 @@
           <h1>目录标注台</h1>
           <p>批量粘贴目录文本，先预览，再保存并立即物化章节 PDF。所有书默认待审核，通过后才进入 Feed。</p>
         </div>
-        <a class="btn subtle link" href="/app">返回 Feed</a>
+        <div class="row">
+          <a class="btn subtle link" href="/app">返回 Feed</a>
+          <button id="logoutBtn" class="btn subtle" type="button">退出登录</button>
+        </div>
       </div>
 
       <div class="row">
-        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
+        <input id="tokenInput" type="hidden">
+        <span id="currentUserLabel" class="hint"></span>
         <input id="limitInput" class="input" type="number" min="1" max="500" value="120" style="width:110px;">
         <button id="reloadBtn" class="btn primary" type="button">刷新队列</button>
       </div>
@@ -81,7 +85,35 @@
       </div>
 
       <div class="row">
-        <input id="llmBaseUrlInput" class="input" placeholder="LLM Base URL (OpenAI兼容)" style="min-width:260px;">
+        <select id="llmProviderSelect" class="select" style="min-width:170px;">
+          <option value="openai_compatible">OpenAI 兼容接口</option>
+          <option value="gemini">Gemini (OpenAI兼容)</option>
+        </select>
+        <select id="llmPresetSelect" class="select" style="min-width:280px;"></select>
+        <button id="llmApplyPresetBtn" class="btn subtle" type="button">应用预置</button>
+        <select id="llmProfileSelect" class="select" style="min-width:220px;" hidden></select>
+        <input id="llmProfileNameInput" class="input" placeholder="配置名（如 openai_main / gemini_fast）" style="min-width:220px;">
+        <button id="llmNewProfileBtn" class="btn subtle" type="button">另存为</button>
+        <span id="llmProfileStats" class="hint">已保存 0 套</span>
+      </div>
+      <div id="llmProfilesWrap" class="table-wrap" hidden>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>当前</th>
+              <th>配置名</th>
+              <th>供应商</th>
+              <th>Model</th>
+              <th>Base URL</th>
+              <th>API Key</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="llmProfilesBody"></tbody>
+        </table>
+      </div>
+      <div class="row">
+        <input id="llmBaseUrlInput" class="input" placeholder="LLM Base URL (可留空自动按供应商填充)" style="min-width:260px;">
         <input id="llmModelInput" class="input" placeholder="LLM Model" style="min-width:180px;">
         <input id="llmApiKeyInput" class="input" type="password" placeholder="LLM API Key" style="min-width:220px;">
         <label class="hint"><input id="llmRememberKeyCheck" type="checkbox" checked> 记住API Key</label>
@@ -158,6 +190,11 @@
   <script>
     (() => {
       const App = window.BookFlowApp;
+      if (typeof App.isLoggedIn === "function" && !App.isLoggedIn()) {
+        const next = encodeURIComponent(`${window.location.pathname}${window.location.search || ""}`);
+        window.location.href = `/app/login.html?next=${next}`;
+        return;
+      }
       const state = {
         token: App.getStoredToken(),
         books: [],
@@ -178,11 +215,16 @@
         llmBatchJobId: "",
         llmBatchFailedPages: [],
         llmBatchRunning: false,
+        llmProfiles: [],
+        llmActiveProfile: "",
+        llmSaveAsRequested: false,
       };
 
       const tokenInput = document.getElementById("tokenInput");
+      const currentUserLabel = document.getElementById("currentUserLabel");
       const limitInput = document.getElementById("limitInput");
       const reloadBtn = document.getElementById("reloadBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
       const noticeEl = document.getElementById("notice");
       const bookSelect = document.getElementById("bookSelect");
       const totalPagesInput = document.getElementById("totalPagesInput");
@@ -221,6 +263,15 @@
       const sortByPageBtn = document.getElementById("sortByPageBtn");
       const appendOcrBtn = document.getElementById("appendOcrBtn");
       const applyOcrBtn = document.getElementById("applyOcrBtn");
+      const llmProviderSelect = document.getElementById("llmProviderSelect");
+      const llmPresetSelect = document.getElementById("llmPresetSelect");
+      const llmApplyPresetBtn = document.getElementById("llmApplyPresetBtn");
+      const llmProfileSelect = document.getElementById("llmProfileSelect");
+      const llmProfileNameInput = document.getElementById("llmProfileNameInput");
+      const llmNewProfileBtn = document.getElementById("llmNewProfileBtn");
+      const llmProfileStats = document.getElementById("llmProfileStats");
+      const llmProfilesWrap = document.getElementById("llmProfilesWrap");
+      const llmProfilesBody = document.getElementById("llmProfilesBody");
       const llmBaseUrlInput = document.getElementById("llmBaseUrlInput");
       const llmModelInput = document.getElementById("llmModelInput");
       const llmApiKeyInput = document.getElementById("llmApiKeyInput");
@@ -249,18 +300,400 @@
       const lineDiagWrap = document.getElementById("lineDiagWrap");
       const lineDiagBody = document.getElementById("lineDiagBody");
 
+      const LLM_PROVIDER_OPENAI_COMPAT = "openai_compatible";
+      const LLM_PROVIDER_GEMINI = "gemini";
+      const LLM_PROVIDER_LABELS = {
+        [LLM_PROVIDER_OPENAI_COMPAT]: "OpenAI兼容",
+        [LLM_PROVIDER_GEMINI]: "Gemini",
+      };
+      const LLM_PROVIDER_DEFAULT_BASE = {
+        [LLM_PROVIDER_OPENAI_COMPAT]: "https://api.openai.com/v1",
+        [LLM_PROVIDER_GEMINI]: "https://generativelanguage.googleapis.com/v1beta/openai",
+      };
+      const LLM_PROVIDER_DEFAULT_MODEL = {
+        [LLM_PROVIDER_OPENAI_COMPAT]: "gpt-4.1-mini",
+        [LLM_PROVIDER_GEMINI]: "gemini-2.5-flash",
+      };
+      const LLM_PRESETS = [
+        {
+          id: "gemini_free_flash_lite",
+          label: "Gemini 免费 · 2.5 Flash-Lite",
+          provider: LLM_PROVIDER_GEMINI,
+          base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+          model: "gemini-2.5-flash-lite",
+          profile_name: "gemini_free_flash_lite",
+          requires_endpoint: false,
+        },
+        {
+          id: "gemini_free_flash",
+          label: "Gemini 免费 · 2.5 Flash",
+          provider: LLM_PROVIDER_GEMINI,
+          base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+          model: "gemini-2.5-flash",
+          profile_name: "gemini_free_flash",
+          requires_endpoint: false,
+        },
+        {
+          id: "doubao_ark_endpoint",
+          label: "豆包 Ark · Endpoint ID",
+          provider: LLM_PROVIDER_OPENAI_COMPAT,
+          base_url: "https://ark.cn-beijing.volces.com/api/v3",
+          model: "ep-替换为你的EndpointID",
+          profile_name: "doubao_ark_endpoint",
+          requires_endpoint: true,
+        },
+      ];
+
+      function normalizeLlmProvider(raw) {
+        const text = String(raw || "").trim().toLowerCase();
+        if (text === "gemini" || text === "google" || text === "google_gemini" || text === "google-gemini") {
+          return LLM_PROVIDER_GEMINI;
+        }
+        return LLM_PROVIDER_OPENAI_COMPAT;
+      }
+
+      function getProviderLabel(provider) {
+        const norm = normalizeLlmProvider(provider);
+        return LLM_PROVIDER_LABELS[norm] || LLM_PROVIDER_LABELS[LLM_PROVIDER_OPENAI_COMPAT];
+      }
+
+      function getDefaultBaseUrlByProvider(provider) {
+        const norm = normalizeLlmProvider(provider);
+        return String(LLM_PROVIDER_DEFAULT_BASE[norm] || LLM_PROVIDER_DEFAULT_BASE[LLM_PROVIDER_OPENAI_COMPAT]);
+      }
+
+      function getDefaultModelByProvider(provider) {
+        const norm = normalizeLlmProvider(provider);
+        return String(LLM_PROVIDER_DEFAULT_MODEL[norm] || "");
+      }
+
+      function getLlmPresetById(presetId) {
+        const target = String(presetId || "").trim();
+        if (!target) {
+          return null;
+        }
+        for (const preset of LLM_PRESETS) {
+          if (String(preset?.id || "").trim() === target) {
+            return preset;
+          }
+        }
+        return null;
+      }
+
+      function renderLlmPresetSelect(preferredId = "") {
+        if (!(llmPresetSelect instanceof HTMLSelectElement)) {
+          return;
+        }
+        const keepId = String(preferredId || llmPresetSelect.value || "").trim();
+        const provider = normalizeLlmProvider(llmProviderSelect.value);
+        const preferred = LLM_PRESETS
+          .filter((preset) => normalizeLlmProvider(preset.provider) === provider)
+          .concat(LLM_PRESETS.filter((preset) => normalizeLlmProvider(preset.provider) !== provider));
+        llmPresetSelect.innerHTML = "";
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "选择预置配置...";
+        llmPresetSelect.appendChild(placeholder);
+        for (const preset of preferred) {
+          const option = document.createElement("option");
+          option.value = String(preset.id || "");
+          option.textContent = `${preset.label} · ${getProviderLabel(preset.provider)}`;
+          llmPresetSelect.appendChild(option);
+        }
+        llmPresetSelect.value = getLlmPresetById(keepId) ? keepId : "";
+      }
+
+      function sanitizeLlmProfileName(raw, fallback = "default") {
+        const fallbackText = fallback === null || fallback === undefined ? "default" : String(fallback);
+        const text = String(raw || "").trim();
+        if (!text) {
+          return fallbackText.slice(0, 64);
+        }
+        // 允许中文，避免“配置一/配置二”都被清洗成同一个 default。
+        const safe = text
+          .replace(/[^\w\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF._:-]+/g, "_")
+          .replace(/^[._:-]+|[._:-]+$/g, "");
+        if (safe) {
+          return safe.slice(0, 64);
+        }
+        if (fallbackText) {
+          return fallbackText.slice(0, 64);
+        }
+        return "";
+      }
+
+      function findLlmProfile(profileName) {
+        const target = sanitizeLlmProfileName(profileName, "");
+        if (!target) {
+          return null;
+        }
+        const list = Array.isArray(state.llmProfiles) ? state.llmProfiles : [];
+        for (const row of list) {
+          const name = sanitizeLlmProfileName(row?.name, "");
+          if (name && name === target) {
+            return row;
+          }
+        }
+        return null;
+      }
+
+      function normalizeLlmProfileRecord(raw, fallbackName = "default") {
+        const row = raw && typeof raw === "object" ? raw : {};
+        const provider = normalizeLlmProvider(row.provider);
+        const name = sanitizeLlmProfileName(row.name || row.profile_name, fallbackName);
+        const baseUrl = String(row.base_url || "").trim() || getDefaultBaseUrlByProvider(provider);
+        const model = String(row.model || "").trim();
+        const apiKey = String(row.api_key || "").trim();
+        const prompt = String(row.prompt || "").trim()
+          || "你是目录识别助手。请从图片中提取目录条目，并严格按每行一条返回：标题 ...... 页码。只输出目录行，不要解释。";
+        return {
+          name,
+          provider,
+          base_url: baseUrl,
+          model,
+          api_key: apiKey,
+          prompt,
+        };
+      }
+
+      function suggestLlmProfileName(provider, model) {
+        const providerPart = normalizeLlmProvider(provider) === LLM_PROVIDER_GEMINI ? "gemini" : "openai";
+        const modelPart = sanitizeLlmProfileName(String(model || "").trim(), "model").toLowerCase();
+        const base = sanitizeLlmProfileName(`${providerPart}_${modelPart || "model"}`, `${providerPart}_model`);
+        if (!findLlmProfile(base)) {
+          return base;
+        }
+        for (let i = 2; i <= 200; i += 1) {
+          const candidate = sanitizeLlmProfileName(`${base}_${i}`, `${base}_${i}`);
+          if (!findLlmProfile(candidate)) {
+            return candidate;
+          }
+        }
+        return sanitizeLlmProfileName(`${base}_${Date.now()}`, base);
+      }
+
+      function updateLlmSaveButtonState() {
+        if (!(llmSaveConfigBtn instanceof HTMLButtonElement)) {
+          return;
+        }
+        const name = sanitizeLlmProfileName(llmProfileNameInput.value, "");
+        if (!name) {
+          llmSaveConfigBtn.textContent = "保存为新配置";
+          return;
+        }
+        if (state.llmSaveAsRequested) {
+          llmSaveConfigBtn.textContent = "保存为新配置";
+          return;
+        }
+        const exists = findLlmProfile(name);
+        const isActive = name === state.llmActiveProfile;
+        llmSaveConfigBtn.textContent = exists && isActive ? "更新配置" : "保存为新配置";
+      }
+
+      function renderLlmProfileSelect(activeName) {
+        const target = sanitizeLlmProfileName(
+          activeName || state.llmActiveProfile || llmProfileNameInput.value || window.localStorage.getItem("bookflow.llm_profile_name") || "default",
+          "default",
+        );
+        const list = Array.isArray(state.llmProfiles) ? state.llmProfiles : [];
+        state.llmActiveProfile = target;
+        llmProfileSelect.innerHTML = "";
+        if (!list.length) {
+          state.llmActiveProfile = "";
+          if (llmProfileStats instanceof HTMLElement) {
+            llmProfileStats.textContent = "已保存 0 套";
+          }
+          if (llmProfilesWrap instanceof HTMLElement) {
+            llmProfilesWrap.hidden = true;
+          }
+          updateLlmSaveButtonState();
+          return;
+        }
+        for (const row of list) {
+          const name = sanitizeLlmProfileName(row?.name, "");
+          if (!name) {
+            continue;
+          }
+          const providerLabel = getProviderLabel(row?.provider);
+          const modelText = String(row?.model || "").trim();
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = modelText ? `${name} · ${providerLabel} · ${modelText}` : `${name} · ${providerLabel}`;
+          llmProfileSelect.appendChild(option);
+        }
+        llmProfileSelect.value = findLlmProfile(target) ? target : llmProfileSelect.options[0].value;
+        state.llmActiveProfile = sanitizeLlmProfileName(llmProfileSelect.value || target, "default");
+
+        if (llmProfileStats instanceof HTMLElement) {
+          llmProfileStats.textContent = `已保存 ${list.length} 套`;
+        }
+        if (!(llmProfilesWrap instanceof HTMLElement) || !(llmProfilesBody instanceof HTMLElement)) {
+          return;
+        }
+        llmProfilesBody.innerHTML = "";
+        llmProfilesWrap.hidden = false;
+        for (const row of list) {
+          const name = sanitizeLlmProfileName(row?.name, "");
+          if (!name) {
+            continue;
+          }
+          const tr = document.createElement("tr");
+          const isActive = name === state.llmActiveProfile;
+          const modelText = String(row?.model || "").trim();
+          const baseUrlText = String(row?.base_url || "").trim();
+          const hasKey = String(row?.api_key || "").trim().length > 0;
+
+          const activeCell = document.createElement("td");
+          activeCell.textContent = isActive ? "●" : "";
+          tr.appendChild(activeCell);
+
+          const nameCell = document.createElement("td");
+          nameCell.textContent = name;
+          tr.appendChild(nameCell);
+
+          const providerCell = document.createElement("td");
+          providerCell.textContent = getProviderLabel(row?.provider);
+          tr.appendChild(providerCell);
+
+          const modelCell = document.createElement("td");
+          modelCell.textContent = modelText || "-";
+          tr.appendChild(modelCell);
+
+          const baseCell = document.createElement("td");
+          baseCell.textContent = baseUrlText || "-";
+          tr.appendChild(baseCell);
+
+          const keyCell = document.createElement("td");
+          keyCell.textContent = hasKey ? "已保存" : "未保存";
+          tr.appendChild(keyCell);
+
+          const actionCell = document.createElement("td");
+          const useBtn = document.createElement("button");
+          useBtn.className = isActive ? "btn primary" : "btn subtle";
+          useBtn.type = "button";
+          useBtn.textContent = isActive ? "当前使用" : "使用";
+          useBtn.disabled = isActive;
+          useBtn.setAttribute("data-action", "use-profile");
+          useBtn.setAttribute("data-profile", name);
+          actionCell.appendChild(useBtn);
+
+          const deleteBtn = document.createElement("button");
+          deleteBtn.className = "btn subtle";
+          deleteBtn.type = "button";
+          deleteBtn.style.marginLeft = "6px";
+          deleteBtn.textContent = "删除";
+          deleteBtn.setAttribute("data-action", "delete-profile");
+          deleteBtn.setAttribute("data-profile", name);
+          actionCell.appendChild(deleteBtn);
+          tr.appendChild(actionCell);
+
+          llmProfilesBody.appendChild(tr);
+        }
+        updateLlmSaveButtonState();
+      }
+
+      function applyProviderDefaults(provider, options = {}) {
+        const norm = normalizeLlmProvider(provider);
+        const force = !!options.force;
+        const fromProvider = normalizeLlmProvider(
+          options.fromProvider || window.localStorage.getItem("bookflow.llm_provider") || norm,
+        );
+        const currentBase = String(llmBaseUrlInput.value || "").trim();
+        const currentModel = String(llmModelInput.value || "").trim();
+        const fromDefaultBase = getDefaultBaseUrlByProvider(fromProvider);
+        const fromDefaultModel = getDefaultModelByProvider(fromProvider);
+        if (force || !currentBase || currentBase === fromDefaultBase) {
+          llmBaseUrlInput.value = getDefaultBaseUrlByProvider(norm);
+        }
+        if (force || !currentModel || currentModel === fromDefaultModel) {
+          llmModelInput.value = getDefaultModelByProvider(norm);
+        }
+      }
+
+      function applyLlmProfileToInputs(profile, options = {}) {
+        const row = normalizeLlmProfileRecord(profile, "default");
+        const withApiKey = !!options.withApiKey;
+        const setAsActive = !!options.setAsActive;
+        const keepSaveAsMode = !!options.keepSaveAsMode;
+        if (!keepSaveAsMode) {
+          state.llmSaveAsRequested = false;
+        }
+        llmProviderSelect.value = normalizeLlmProvider(row.provider);
+        renderLlmPresetSelect(llmPresetSelect.value);
+        llmProfileNameInput.value = sanitizeLlmProfileName(row.name, "default");
+        renderLlmProfileSelect(setAsActive ? row.name : state.llmActiveProfile);
+        if (findLlmProfile(row.name)) {
+          llmProfileSelect.value = sanitizeLlmProfileName(row.name, "default");
+        }
+        llmBaseUrlInput.value = String(row.base_url || "").trim() || getDefaultBaseUrlByProvider(row.provider);
+        llmModelInput.value = String(row.model || "").trim();
+        llmPromptInput.value = String(row.prompt || "").trim()
+          || "你是目录识别助手。请从图片中提取目录条目，并严格按每行一条返回：标题 ...... 页码。只输出目录行，不要解释。";
+        if (withApiKey && llmRememberKeyCheck.checked) {
+          llmApiKeyInput.value = String(row.api_key || "").trim();
+        } else if (!llmRememberKeyCheck.checked) {
+          llmApiKeyInput.value = "";
+        }
+        applyProviderDefaults(row.provider, { force: false });
+      }
+
+      function applySelectedLlmPreset() {
+        const preset = getLlmPresetById(llmPresetSelect.value);
+        if (!preset) {
+          setNotice("请先选择一个预置配置。", true);
+          return;
+        }
+        const provider = normalizeLlmProvider(preset.provider);
+        llmProviderSelect.value = provider;
+        llmBaseUrlInput.value = String(preset.base_url || "").trim() || getDefaultBaseUrlByProvider(provider);
+        llmModelInput.value = String(preset.model || "").trim() || getDefaultModelByProvider(provider);
+        const preferredName = sanitizeLlmProfileName(
+          preset.profile_name || suggestLlmProfileName(provider, llmModelInput.value),
+          "default",
+        );
+        const finalName = findLlmProfile(preferredName)
+          ? suggestLlmProfileName(provider, llmModelInput.value)
+          : preferredName;
+        llmProfileNameInput.value = finalName;
+        state.llmSaveAsRequested = true;
+        if (llmRememberKeyCheck.checked) {
+          llmApiKeyInput.value = "";
+        }
+        renderLlmPresetSelect(String(preset.id || ""));
+        updateLlmSaveButtonState();
+        getLlmConfig();
+        const hint = preset.requires_endpoint
+          ? "请把 model 改成你在火山方舟里创建的 Endpoint ID（ep-...）后再保存。"
+          : "请填入 API Key 后保存。";
+        setNotice(`已应用预置：${preset.label}。${hint}`, false);
+      }
+
       tokenInput.value = state.token;
+      if (currentUserLabel instanceof HTMLElement) {
+        const username = typeof App.getStoredUsername === "function" ? App.getStoredUsername() : "";
+        const uid = App.getStoredUserId();
+        currentUserLabel.textContent = username
+          ? `当前用户：${username}`
+          : (uid ? `当前用户：${uid.slice(0, 8)}` : "未登录");
+      }
       autoIndentCheck.checked = true;
       const rememberApiKeyStored = window.localStorage.getItem("bookflow.llm_remember_api_key");
       const rememberApiKey = rememberApiKeyStored === null ? true : rememberApiKeyStored === "1";
+      const localProvider = normalizeLlmProvider(window.localStorage.getItem("bookflow.llm_provider"));
+      const localProfileName = sanitizeLlmProfileName(window.localStorage.getItem("bookflow.llm_profile_name"), "default");
       llmRememberKeyCheck.checked = rememberApiKey;
-      llmBaseUrlInput.value = window.localStorage.getItem("bookflow.llm_base_url") || "https://api.openai.com";
-      llmModelInput.value = window.localStorage.getItem("bookflow.llm_model") || "gpt-4.1-mini";
+      llmProviderSelect.value = localProvider;
+      llmProfileNameInput.value = localProfileName;
+      llmBaseUrlInput.value = window.localStorage.getItem("bookflow.llm_base_url") || getDefaultBaseUrlByProvider(localProvider);
+      llmModelInput.value = window.localStorage.getItem("bookflow.llm_model") || getDefaultModelByProvider(localProvider);
       llmApiKeyInput.value = rememberApiKey ? (window.localStorage.getItem("bookflow.llm_api_key") || "") : "";
       llmPromptInput.value = window.localStorage.getItem("bookflow.llm_prompt")
         || "你是目录识别助手。请从图片中提取目录条目，并严格按每行一条返回：标题 ...... 页码。只输出目录行，不要解释。";
       llmRetryCountInput.value = window.localStorage.getItem("bookflow.llm_retry_count") || "2";
       llmRetryBackoffInput.value = window.localStorage.getItem("bookflow.llm_retry_backoff_ms") || "700";
+      renderLlmPresetSelect("");
+      renderLlmProfileSelect(localProfileName);
+      applyProviderDefaults(localProvider, { force: false });
 
       function clamp(value, min, max) {
         return Math.max(min, Math.min(max, value));
@@ -696,6 +1129,7 @@
         const params = new URLSearchParams();
         params.set("book_id", String(bookId));
         params.set("token", state.token || App.getStoredToken());
+        params.set("device_id", App.getDeviceId());
         openPdfBtn.setAttribute("href", `/v1/book_pdf?${params.toString()}`);
       }
 
@@ -704,6 +1138,7 @@
         params.set("book_id", String(bookId || ""));
         params.set("page", String(Math.max(1, Number(page) || 1)));
         params.set("token", state.token || App.getStoredToken());
+        params.set("device_id", App.getDeviceId());
         params.set("_ts", String(Date.now()));
         return `/v1/book_page_image?${params.toString()}`;
       }
@@ -1552,6 +1987,8 @@
       }
 
       function persistLlmConfigToLocal(cfg) {
+        window.localStorage.setItem("bookflow.llm_provider", String(cfg.provider || LLM_PROVIDER_OPENAI_COMPAT));
+        window.localStorage.setItem("bookflow.llm_profile_name", String(cfg.profileName || "default"));
         window.localStorage.setItem("bookflow.llm_base_url", String(cfg.baseUrl || ""));
         window.localStorage.setItem("bookflow.llm_model", String(cfg.model || ""));
         window.localStorage.setItem("bookflow.llm_prompt", String(cfg.prompt || ""));
@@ -1570,20 +2007,87 @@
           method: "POST",
           token: state.token,
           body: {
+            provider: cfg.provider,
+            profile_name: cfg.profileName,
             base_url: cfg.baseUrl,
             model: cfg.model,
             api_key: cfg.apiKey,
             prompt: cfg.prompt,
             remember_api_key: !!cfg.rememberApiKey,
+            set_active: true,
           },
         });
+        const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+        state.llmProfiles = profiles.map((row, idx) => normalizeLlmProfileRecord(row, `profile_${idx + 1}`));
+        const activeName = sanitizeLlmProfileName(payload.active_profile || payload.profile_name || cfg.profileName, cfg.profileName);
+        state.llmSaveAsRequested = false;
+        renderLlmProfileSelect(activeName);
+        llmProfileNameInput.value = activeName;
+        llmProviderSelect.value = normalizeLlmProvider(payload.provider || cfg.provider);
         if (!silent) {
           setNotice(
-            `LLM配置已保存（model=${payload.model || "-"}，配置文件=${payload.config_file || "-"}）。`,
+            `LLM配置已保存：${activeName} · ${getProviderLabel(payload.provider || cfg.provider)} · model=${payload.model || "-"}。当前已保存 ${state.llmProfiles.length} 套。`,
             false,
           );
         }
         return payload;
+      }
+
+      async function activateLlmProfileOnServer(profileName) {
+        const target = sanitizeLlmProfileName(profileName, "default");
+        if (!target) {
+          return;
+        }
+        syncTokenFromInput();
+        const payload = await App.apiFetch("/v1/toc/llm_config", {
+          method: "POST",
+          token: state.token,
+          body: {
+            profile_name: target,
+            set_active: true,
+          },
+        });
+        const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+        state.llmProfiles = profiles.map((row, idx) => normalizeLlmProfileRecord(row, `profile_${idx + 1}`));
+        const activeName = sanitizeLlmProfileName(payload.active_profile || payload.profile_name || target, target);
+        state.llmSaveAsRequested = false;
+        const activeProfile = findLlmProfile(activeName);
+        if (activeProfile) {
+          applyLlmProfileToInputs(activeProfile, { withApiKey: llmRememberKeyCheck.checked, setAsActive: true });
+        } else {
+          renderLlmProfileSelect(activeName);
+        }
+        persistLlmConfigToLocal(getLlmConfig());
+        setNotice(`已设为当前配置：${activeName} · ${getProviderLabel(payload.provider || (activeProfile && activeProfile.provider) || "")}。`, false);
+      }
+
+      async function deleteLlmProfileOnServer(profileName) {
+        const target = sanitizeLlmProfileName(profileName, "default");
+        if (!target) {
+          return;
+        }
+        syncTokenFromInput();
+        const payload = await App.apiFetch("/v1/toc/llm_config", {
+          method: "POST",
+          token: state.token,
+          body: {
+            profile_name: target,
+            delete_profile: true,
+          },
+        });
+        const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+        state.llmProfiles = profiles.map((row, idx) => normalizeLlmProfileRecord(row, `profile_${idx + 1}`));
+        const activeNameRaw = String(payload.active_profile || payload.profile_name || "").trim();
+        const activeName = sanitizeLlmProfileName(activeNameRaw, "");
+        state.llmSaveAsRequested = false;
+        const activeProfile = findLlmProfile(activeName);
+        if (activeProfile) {
+          applyLlmProfileToInputs(activeProfile, { withApiKey: llmRememberKeyCheck.checked, setAsActive: true });
+        } else {
+          renderLlmProfileSelect(activeName);
+        }
+        persistLlmConfigToLocal(getLlmConfig());
+        setNotice(`已删除配置：${target}。当前配置：${activeName}。`, false);
       }
 
       function summarizeValidation(validation) {
@@ -1610,9 +2114,9 @@
       async function runLlmValidation(options = {}) {
         const silent = !!options.silent;
         const cfg = getLlmConfig();
-        if (!cfg.baseUrl || !cfg.model || !cfg.apiKey) {
+        if (!cfg.model || !cfg.apiKey) {
           if (!silent) {
-            setNotice("请先填写完整 LLM 配置（base_url/model/api_key）。", true);
+            setNotice("请先填写完整 LLM 配置（model/api_key）。", true);
           }
           return { valid: false, reason: "missing_config" };
         }
@@ -1624,7 +2128,11 @@
             method: "POST",
             token: state.token,
             body: {
+              provider: cfg.provider,
+              profile_name: cfg.profileName,
               llm: {
+                provider: cfg.provider,
+                profile_name: cfg.profileName,
                 base_url: cfg.baseUrl,
                 model: cfg.model,
                 api_key: cfg.apiKey,
@@ -1648,7 +2156,12 @@
         const valid = !!validation.valid;
         const summary = summarizeValidation(validation);
         if (!silent) {
-          setNotice(valid ? `LLM检测通过：${summary}` : `LLM检测失败：${summary}`, !valid);
+          setNotice(
+            valid
+              ? `LLM检测通过：${cfg.profileName} · ${getProviderLabel(cfg.provider)} · ${summary}`
+              : `LLM检测失败：${cfg.profileName} · ${summary}`,
+            !valid,
+          );
         }
         return { valid, reason: summary, validation };
       }
@@ -1660,56 +2173,85 @@
 
         try {
           const payload = await App.apiFetch("/v1/toc/llm_config", { token: state.token });
-          // 服务端配置优先，避免旧 localStorage 把模型/地址“锁死”在过期值。
-          const serverBase = String(payload.base_url || "").trim();
-          const serverModel = String(payload.model || "").trim();
-          const serverPrompt = String(payload.prompt || "").trim();
-          const serverApiKey = String(payload.api_key || "").trim();
+          const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+          state.llmProfiles = profiles.map((row, idx) => normalizeLlmProfileRecord(row, `profile_${idx + 1}`));
+          const activeName = sanitizeLlmProfileName(
+            payload.active_profile || payload.profile_name || llmProfileNameInput.value || "",
+            "",
+          );
 
-          if (serverBase) {
-            llmBaseUrlInput.value = serverBase;
+          let activeProfile = findLlmProfile(activeName);
+          if (!activeProfile && (state.llmProfiles.length > 0 || activeName)) {
+            activeProfile = normalizeLlmProfileRecord(
+              {
+                name: activeName,
+                provider: payload.provider,
+                base_url: payload.base_url,
+                model: payload.model,
+                api_key: payload.api_key,
+                prompt: payload.prompt,
+              },
+              activeName,
+            );
+            state.llmProfiles = [activeProfile].concat(state.llmProfiles);
           }
-          if (serverModel) {
-            llmModelInput.value = serverModel;
-          }
-          if (serverPrompt) {
-            llmPromptInput.value = serverPrompt;
-          }
-          if (rememberApiKey) {
-            llmApiKeyInput.value = serverApiKey;
-          } else if (!String(llmApiKeyInput.value || "").trim()) {
-            llmApiKeyInput.value = "";
+          state.llmSaveAsRequested = false;
+          if (activeProfile) {
+            applyLlmProfileToInputs(activeProfile, { withApiKey: rememberApiKey, setAsActive: true });
+            if (!rememberApiKey) {
+              llmApiKeyInput.value = "";
+            }
+          } else {
+            renderLlmProfileSelect("");
+            llmProviderSelect.value = normalizeLlmProvider(payload.provider || llmProviderSelect.value);
+            if (String(payload.base_url || "").trim()) {
+              llmBaseUrlInput.value = String(payload.base_url || "").trim();
+            } else {
+              applyProviderDefaults(llmProviderSelect.value, { force: false });
+            }
+            if (String(payload.model || "").trim()) {
+              llmModelInput.value = String(payload.model || "").trim();
+            }
+            if (String(payload.prompt || "").trim()) {
+              llmPromptInput.value = String(payload.prompt || "").trim();
+            }
+            if (rememberApiKey) {
+              llmApiKeyInput.value = String(payload.api_key || "").trim();
+            } else {
+              llmApiKeyInput.value = "";
+            }
           }
 
-          persistLlmConfigToLocal({
-            baseUrl: llmBaseUrlInput.value,
-            model: llmModelInput.value,
-            apiKey: llmApiKeyInput.value,
-            prompt: llmPromptInput.value,
-            rememberApiKey,
-          });
+          persistLlmConfigToLocal(getLlmConfig());
         } catch (_err) {
           // 保持静默：离线或后端未更新时继续使用本地配置。
+          applyProviderDefaults(llmProviderSelect.value, { force: false });
+          persistLlmConfigToLocal(getLlmConfig());
         }
       }
 
       function getLlmConfig() {
-        const baseUrl = String(llmBaseUrlInput.value || "").trim();
+        const provider = normalizeLlmProvider(llmProviderSelect.value);
+        const profileName = sanitizeLlmProfileName(
+          llmProfileNameInput.value || llmProfileSelect.value || "default",
+          "default",
+        );
+        let baseUrl = String(llmBaseUrlInput.value || "").trim();
+        if (!baseUrl) {
+          baseUrl = getDefaultBaseUrlByProvider(provider);
+          llmBaseUrlInput.value = baseUrl;
+        }
         const model = String(llmModelInput.value || "").trim();
         const apiKey = String(llmApiKeyInput.value || "").trim();
         const prompt = String(llmPromptInput.value || "").trim();
         const rememberApiKey = !!llmRememberKeyCheck.checked;
-        const cfg = { baseUrl, model, apiKey, prompt, rememberApiKey };
+        const cfg = { provider, profileName, baseUrl, model, apiKey, prompt, rememberApiKey };
         persistLlmConfigToLocal(cfg);
         return cfg;
       }
 
       async function runLlmByDataUrl(imageDataUrl) {
         const cfg = getLlmConfig();
-        if (!cfg.baseUrl) {
-          setNotice("请先填写 LLM Base URL。", true);
-          return;
-        }
         if (!cfg.model) {
           setNotice("请先填写 LLM Model。", true);
           return;
@@ -1728,10 +2270,14 @@
         const pageOffset = getPageOffset();
         const body = {
           image_data_url: imageDataUrl,
+          provider: cfg.provider,
+          profile_name: cfg.profileName,
           prompt: cfg.prompt,
           remember_config: true,
           remember_api_key: cfg.rememberApiKey,
           llm: {
+            provider: cfg.provider,
+            profile_name: cfg.profileName,
             base_url: cfg.baseUrl,
             model: cfg.model,
             api_key: cfg.apiKey,
@@ -1762,7 +2308,10 @@
         }
         const savedPath = String(payload.saved_result_file || "").trim();
         const savedText = savedPath ? `，结果已保存：${savedPath}` : "";
-        setNotice(`LLM完成：识别 ${payload.line_count || 0} 行（model=${payload.model || "-" }）${savedText}。`, false);
+        setNotice(
+          `LLM完成：${cfg.profileName} · ${getProviderLabel(cfg.provider)} · 识别 ${payload.line_count || 0} 行（model=${payload.model || "-" }）${savedText}。`,
+          false,
+        );
       }
 
       async function runOcrFromScreenshot() {
@@ -1955,8 +2504,8 @@
           return;
         }
         const cfg = getLlmConfig();
-        if (!cfg.baseUrl || !cfg.model || !cfg.apiKey) {
-          setNotice("请先填写并保存完整的 LLM 配置（base_url/model/api_key）。", true);
+        if (!cfg.model || !cfg.apiKey) {
+          setNotice("请先填写并保存完整的 LLM 配置（model/api_key）。", true);
           return;
         }
         const retryCfg = readLlmRetryConfig();
@@ -2021,6 +2570,8 @@
           pages: retryFailedOnly ? retryPages : undefined,
           total_pages: totalPages || undefined,
           page_offset: getPageOffset(),
+          provider: cfg.provider,
+          profile_name: cfg.profileName,
           prompt: cfg.prompt,
           validate_first: true,
           remember_config: true,
@@ -2028,6 +2579,8 @@
           max_retries_per_page: retryCfg.maxRetriesPerPage,
           retry_backoff_ms: retryCfg.retryBackoffMs,
           llm: {
+            provider: cfg.provider,
+            profile_name: cfg.profileName,
             base_url: cfg.baseUrl,
             model: cfg.model,
             api_key: cfg.apiKey,
@@ -2410,6 +2963,14 @@
       reloadBtn.addEventListener("click", () => {
         void loadQueue();
       });
+      if (logoutBtn instanceof HTMLButtonElement) {
+        logoutBtn.addEventListener("click", async () => {
+          if (typeof App.authLogout === "function") {
+            await App.authLogout();
+          }
+          window.location.href = "/app/login.html";
+        });
+      }
       loadSavedBtn.addEventListener("click", () => {
         void loadSavedAnnotation();
       });
@@ -2475,10 +3036,167 @@
       llmCurrentPageBtn.addEventListener("click", () => {
         void runLlmFromCurrentPage();
       });
+      llmProviderSelect.addEventListener("change", () => {
+        const previousProvider = normalizeLlmProvider(window.localStorage.getItem("bookflow.llm_provider"));
+        const provider = normalizeLlmProvider(llmProviderSelect.value);
+        llmProviderSelect.value = provider;
+        renderLlmPresetSelect(llmPresetSelect.value);
+        applyProviderDefaults(provider, { force: false, fromProvider: previousProvider });
+        updateLlmSaveButtonState();
+        persistLlmConfigToLocal(getLlmConfig());
+      });
+      llmPresetSelect.addEventListener("change", () => {
+        const preset = getLlmPresetById(llmPresetSelect.value);
+        if (!preset) {
+          return;
+        }
+        const provider = normalizeLlmProvider(preset.provider);
+        if (normalizeLlmProvider(llmProviderSelect.value) !== provider) {
+          llmProviderSelect.value = provider;
+          renderLlmPresetSelect(String(preset.id || ""));
+          applyProviderDefaults(provider, { force: false, fromProvider: provider });
+        }
+      });
+      llmApplyPresetBtn.addEventListener("click", () => {
+        applySelectedLlmPreset();
+      });
+      llmProfileSelect.addEventListener("change", () => {
+        const profileName = sanitizeLlmProfileName(llmProfileSelect.value, "default");
+        const profile = findLlmProfile(profileName);
+        if (!profile) {
+          return;
+        }
+        applyLlmProfileToInputs(profile, { withApiKey: llmRememberKeyCheck.checked });
+        setNotice(`已切换模型配置：${profileName} · ${getProviderLabel(profile.provider)}。`, false);
+        persistLlmConfigToLocal(getLlmConfig());
+      });
+      llmProfilesBody.addEventListener("click", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+        const button = target.closest("button[data-action]");
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+        const action = String(button.dataset.action || "");
+        const profileName = sanitizeLlmProfileName(button.dataset.profile || "", "default");
+        if (action === "use-profile") {
+          button.disabled = true;
+          void activateLlmProfileOnServer(profileName).catch((err) => {
+            const msg = err?.payload?.error?.message || err.message || "切换配置失败";
+            setNotice(`切换配置失败：${msg}`, true);
+          }).finally(() => {
+            button.disabled = false;
+          });
+          return;
+        }
+        if (action === "delete-profile") {
+          const ok = window.confirm(`确认删除模型配置「${profileName}」吗？`);
+          if (!ok) {
+            return;
+          }
+          button.disabled = true;
+          void deleteLlmProfileOnServer(profileName).catch((err) => {
+            const msg = err?.payload?.error?.message || err.message || "删除配置失败";
+            setNotice(`删除配置失败：${msg}`, true);
+          }).finally(() => {
+            button.disabled = false;
+          });
+        }
+      });
+      llmProfilesBody.addEventListener("dblclick", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+        const row = target.closest("tr");
+        if (!(row instanceof HTMLTableRowElement)) {
+          return;
+        }
+        const nameCell = row.children && row.children[1];
+        const profileName = sanitizeLlmProfileName(nameCell ? nameCell.textContent : "", "");
+        if (!profileName) {
+          return;
+        }
+        void activateLlmProfileOnServer(profileName).catch((err) => {
+          const msg = err?.payload?.error?.message || err.message || "切换配置失败";
+          setNotice(`切换配置失败：${msg}`, true);
+        });
+      });
+      llmProfileNameInput.addEventListener("change", () => {
+        llmProfileNameInput.value = sanitizeLlmProfileName(llmProfileNameInput.value, "default");
+        updateLlmSaveButtonState();
+        persistLlmConfigToLocal(getLlmConfig());
+      });
+      llmProfileNameInput.addEventListener("input", () => {
+        updateLlmSaveButtonState();
+      });
+      llmModelInput.addEventListener("input", () => {
+        updateLlmSaveButtonState();
+      });
+      llmNewProfileBtn.addEventListener("click", () => {
+        const provider = normalizeLlmProvider(llmProviderSelect.value);
+        state.llmSaveAsRequested = true;
+        llmProfileNameInput.value = suggestLlmProfileName(provider, llmModelInput.value || getDefaultModelByProvider(provider));
+        if (!String(llmModelInput.value || "").trim()) {
+          llmModelInput.value = getDefaultModelByProvider(provider);
+        }
+        if (!String(llmBaseUrlInput.value || "").trim()) {
+          llmBaseUrlInput.value = getDefaultBaseUrlByProvider(provider);
+        }
+        if (llmRememberKeyCheck.checked) {
+          llmApiKeyInput.value = "";
+        }
+        updateLlmSaveButtonState();
+        setNotice(`已切换到另存为模式：${llmProfileNameInput.value}。点“保存为新配置”即可新增。`, false);
+      });
       llmSaveConfigBtn.addEventListener("click", () => {
+        if (!String(llmProfileNameInput.value || "").trim()) {
+          state.llmSaveAsRequested = true;
+          llmProfileNameInput.value = suggestLlmProfileName(llmProviderSelect.value, llmModelInput.value);
+        }
+        let currentName = sanitizeLlmProfileName(llmProfileNameInput.value, "default");
+        const existing = findLlmProfile(currentName);
+        if (existing && (state.llmSaveAsRequested || currentName !== state.llmActiveProfile)) {
+          const providerNext = normalizeLlmProvider(llmProviderSelect.value);
+          const modelNext = String(llmModelInput.value || "").trim();
+          const suggested = suggestLlmProfileName(providerNext, modelNext);
+          llmProfileNameInput.value = suggested;
+          currentName = suggested;
+          setNotice(`配置名“${sanitizeLlmProfileName(existing.name, "default")}”已存在，已自动另存为：${suggested}。`, false);
+          updateLlmSaveButtonState();
+        } else if (existing && currentName === state.llmActiveProfile && !state.llmSaveAsRequested) {
+          const providerNext = normalizeLlmProvider(llmProviderSelect.value);
+          const modelNext = String(llmModelInput.value || "").trim();
+          const baseNext = String(llmBaseUrlInput.value || "").trim() || getDefaultBaseUrlByProvider(providerNext);
+          const promptNext = String(llmPromptInput.value || "").trim();
+          const changedCore = (
+            normalizeLlmProvider(existing.provider) !== providerNext
+            || String(existing.model || "").trim() !== modelNext
+            || String(existing.base_url || "").trim() !== baseNext
+            || String(existing.prompt || "").trim() !== promptNext
+          );
+          if (changedCore) {
+            const suggested = suggestLlmProfileName(providerNext, modelNext);
+            llmProfileNameInput.value = suggested;
+            currentName = suggested;
+            state.llmSaveAsRequested = true;
+            updateLlmSaveButtonState();
+            setNotice(`检测到你在修改当前配置，已自动改为“另存为新配置”：${suggested}。`, false);
+          }
+        }
         const cfg = getLlmConfig();
-        if (!cfg.baseUrl || !cfg.model) {
-          setNotice("请先填写 LLM Base URL 和 Model。", true);
+        if (!cfg.model) {
+          setNotice("请先填写 LLM Model。", true);
+          return;
+        }
+        if (
+          cfg.provider === LLM_PROVIDER_OPENAI_COMPAT
+          && /ark\.cn-beijing\.volces\.com\/api\/v3/i.test(cfg.baseUrl || "")
+          && /替换为你的EndpointID/i.test(cfg.model || "")
+        ) {
+          setNotice("豆包预置里的 model 还是占位符，请先改成你的 Endpoint ID（ep-...）再保存。", true);
           return;
         }
         if (!cfg.apiKey && cfg.rememberApiKey) {

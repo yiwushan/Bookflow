@@ -8,6 +8,7 @@ Supported file types: pdf / epub / txt / md / json
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -108,6 +109,17 @@ def list_supported_files(input_dir: Path, recursive: bool) -> list[Path]:
     files = [p for p in candidates if p.suffix.lower() in SUPPORTED_SUFFIXES]
     files.sort(key=lambda p: p.as_posix().lower())
     return files
+
+
+def compute_file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_import_command(
@@ -223,6 +235,64 @@ def fetch_latest_books_by_source(
     return out
 
 
+def fetch_latest_books_by_fingerprint(
+    *,
+    database_url: str | None,
+    fingerprints: list[str],
+) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    if not database_url or not fingerprints or psycopg is None or dict_row is None:
+        return out
+    uniq_fingerprints = sorted({str(x).strip().lower() for x in fingerprints if str(x).strip()})
+    if not uniq_fingerprints:
+        return out
+    try:
+        with psycopg.connect(database_url, row_factory=dict_row, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    WITH latest AS (
+                      SELECT DISTINCT ON (LOWER(NULLIF(metadata->>'book_fingerprint', '')))
+                        LOWER(NULLIF(metadata->>'book_fingerprint', '')) AS book_fingerprint,
+                        id::text AS book_id,
+                        title,
+                        source_path,
+                        COALESCE(NULLIF(metadata->>'toc_review_status', ''), 'pending_review') AS toc_review_status,
+                        NULLIF(metadata->>'toc_reviewed_at', '') AS toc_reviewed_at
+                      FROM books
+                      WHERE LOWER(NULLIF(metadata->>'book_fingerprint', '')) = ANY(%s)
+                      ORDER BY
+                        LOWER(NULLIF(metadata->>'book_fingerprint', '')),
+                        CASE COALESCE(NULLIF(metadata->>'toc_review_status', ''), 'pending_review')
+                          WHEN 'approved' THEN 0
+                          WHEN 'pending_review' THEN 1
+                          WHEN 'rejected' THEN 2
+                          ELSE 3
+                        END,
+                        created_at DESC,
+                        id DESC
+                    )
+                    SELECT * FROM latest
+                    """,
+                    (uniq_fingerprints,),
+                )
+                rows = cur.fetchall()
+    except Exception:
+        return out
+    for row in rows:
+        fp = str(row.get("book_fingerprint") or "").strip().lower()
+        if not fp:
+            continue
+        out[fp] = {
+            "book_id": row.get("book_id"),
+            "title": row.get("title"),
+            "source_path": row.get("source_path"),
+            "toc_review_status": str(row.get("toc_review_status") or "pending_review"),
+            "toc_reviewed_at": row.get("toc_reviewed_at"),
+        }
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Bulk import local library files into BookFlow")
     parser.add_argument("--input-dir", required=True, help="Directory that contains book files")
@@ -251,6 +321,19 @@ def main() -> int:
         help="Force re-import books even if source_path is already approved",
     )
     parser.add_argument("--json-output", default=None, help="Optional summary JSON output file")
+    parser.add_argument(
+        "--dedup-by-fingerprint",
+        dest="dedup_by_fingerprint",
+        action="store_true",
+        default=True,
+        help="Deduplicate imports by source file SHA256 fingerprint (default: enabled)",
+    )
+    parser.add_argument(
+        "--no-dedup-by-fingerprint",
+        dest="dedup_by_fingerprint",
+        action="store_false",
+        help="Disable fingerprint deduplication and only use source_path-based checks",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -275,11 +358,57 @@ def main() -> int:
 
     file_source_paths = [str(p.resolve()) for p in files]
     existing_by_source = fetch_latest_books_by_source(database_url=database_url, source_paths=file_source_paths)
+    enable_fingerprint_dedup = bool(args.dedup_by_fingerprint and database_url)
+    file_fingerprints_by_source: dict[str, str] = {}
+    fingerprint_missing_count = 0
+    if enable_fingerprint_dedup:
+        for idx, file_path in enumerate(files, start=1):
+            source_path = str(file_path.resolve())
+            try:
+                file_fingerprints_by_source[source_path] = compute_file_sha256(file_path)
+            except Exception:
+                file_fingerprints_by_source[source_path] = ""
+                fingerprint_missing_count += 1
+                print(f"[{idx}/{len(files)}] fingerprint failed: {file_path.name}", file=sys.stderr)
+    existing_by_fingerprint = fetch_latest_books_by_fingerprint(
+        database_url=database_url,
+        fingerprints=list(file_fingerprints_by_source.values()),
+    )
     skip_approved = not bool(args.rescan_approved)
 
     for idx, file_path in enumerate(files, start=1):
         title = derive_title_from_path(file_path)
         source_path = str(file_path.resolve())
+        source_fingerprint = str(file_fingerprints_by_source.get(source_path) or "").strip().lower()
+
+        existing_by_fp = existing_by_fingerprint.get(source_fingerprint) if source_fingerprint else None
+        if isinstance(existing_by_fp, dict):
+            existing_review = str(existing_by_fp.get("toc_review_status") or "pending_review").strip().lower()
+            should_skip_fp = True
+            if existing_review == "approved" and not skip_approved and not bool(args.skip_existing):
+                should_skip_fp = False
+            if should_skip_fp:
+                skipped += 1
+                reason = "already_exists_by_fingerprint"
+                if existing_review == "pending_review":
+                    reason = "already_pending_by_fingerprint"
+                elif existing_review == "approved":
+                    reason = "already_approved_by_fingerprint"
+                print(f"[{idx}/{len(files)}] skipping fingerprint match: {file_path.name}", file=sys.stderr)
+                results.append(
+                    {
+                        "status": "skipped",
+                        "reason": reason,
+                        "path": source_path,
+                        "title": title,
+                        "book_fingerprint": source_fingerprint,
+                        "existing_book_id": existing_by_fp.get("book_id"),
+                        "existing_source_path": existing_by_fp.get("source_path"),
+                        "existing_review_status": existing_review,
+                        "existing_reviewed_at": existing_by_fp.get("toc_reviewed_at"),
+                    }
+                )
+                continue
 
         existing = existing_by_source.get(source_path)
         if bool(args.skip_existing) and isinstance(existing, dict):
@@ -292,6 +421,7 @@ def main() -> int:
                     "reason": "already_exists",
                     "path": source_path,
                     "title": title,
+                    "book_fingerprint": source_fingerprint or None,
                     "existing_book_id": existing.get("book_id"),
                     "existing_review_status": existing_review,
                     "existing_reviewed_at": existing.get("toc_reviewed_at"),
@@ -310,6 +440,7 @@ def main() -> int:
                         "reason": "already_approved",
                         "path": source_path,
                         "title": title,
+                        "book_fingerprint": source_fingerprint or None,
                         "existing_book_id": existing.get("book_id"),
                         "existing_review_status": existing_review,
                         "existing_reviewed_at": existing.get("toc_reviewed_at"),
@@ -349,9 +480,18 @@ def main() -> int:
                     "title": title,
                     "book_type": book_type,
                     "book_id": payload.get("book_id"),
+                    "book_fingerprint": source_fingerprint or payload.get("book_fingerprint"),
                     "chunks_upserted": payload.get("chunks_upserted", payload.get("chunk_count", 0)),
                 }
             )
+            if source_fingerprint:
+                existing_by_fingerprint[source_fingerprint] = {
+                    "book_id": payload.get("book_id"),
+                    "title": title,
+                    "source_path": source_path,
+                    "toc_review_status": "pending_review",
+                    "toc_reviewed_at": None,
+                }
             continue
 
         failed += 1
@@ -361,6 +501,7 @@ def main() -> int:
                 "path": str(file_path.resolve()),
                 "title": title,
                 "book_type": book_type,
+                "book_fingerprint": source_fingerprint or None,
                 "error": error_text,
             }
         )
@@ -379,6 +520,8 @@ def main() -> int:
         "pdf_section_storage": args.pdf_section_storage,
         "skip_existing": bool(args.skip_existing),
         "rescan_approved": bool(args.rescan_approved),
+        "dedup_by_fingerprint": bool(enable_fingerprint_dedup),
+        "fingerprint_missing_count": int(fingerprint_missing_count),
         "total_files": len(files),
         "success_count": success,
         "failure_count": failed,

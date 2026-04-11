@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import hmac
 import io
 import json
 import mimetypes
@@ -69,6 +70,18 @@ from scripts.pdf_sectioning import (
 
 TOKEN = os.getenv("BOOKFLOW_TOKEN", "local-dev-token")
 DATABASE_URL = os.getenv("DATABASE_URL")
+AUTH_USERNAME = str(os.getenv("BOOKFLOW_AUTH_USERNAME", "admin") or "admin").strip() or "admin"
+AUTH_PASSWORD = str(os.getenv("BOOKFLOW_AUTH_PASSWORD", "bookflow") or "bookflow")
+AUTH_SESSION_SECRET = str(os.getenv("BOOKFLOW_AUTH_SECRET", TOKEN) or TOKEN)
+try:
+    AUTH_SESSION_TTL_SEC = max(600, int(os.getenv("BOOKFLOW_AUTH_SESSION_TTL_SEC", str(86400 * 7)) or str(86400 * 7)))
+except Exception:
+    AUTH_SESSION_TTL_SEC = 86400 * 7
+SINGLE_USER_ID = str(os.getenv("BOOKFLOW_SINGLE_USER_ID", "11111111-1111-1111-1111-111111111111") or "").strip()
+try:
+    SINGLE_USER_ID = str(uuid.UUID(SINGLE_USER_ID))
+except Exception:
+    SINGLE_USER_ID = "11111111-1111-1111-1111-111111111111"
 PYTHON_BIN = sys.executable or "python3"
 FRONTEND_ROOT = Path(os.getenv("BOOKFLOW_FRONTEND_DIR", REPO_ROOT / "frontend"))
 TOC_STORE_PATH = Path(os.getenv("BOOKFLOW_TOC_STORE_PATH", "data/toc/manual_annotations.json"))
@@ -79,6 +92,13 @@ LLM_TOC_MODEL = str(os.getenv("BOOKFLOW_LLM_TOC_MODEL", "")).strip()
 LLM_TOC_API_KEY = str(os.getenv("BOOKFLOW_LLM_TOC_API_KEY", "")).strip()
 LLM_TOC_CONFIG_PATH = Path(os.getenv("BOOKFLOW_LLM_TOC_CONFIG_PATH", "data/toc/llm_config.json"))
 LLM_TOC_RUN_DIR = Path(os.getenv("BOOKFLOW_LLM_TOC_RUN_DIR", "data/toc/llm_runs"))
+LLM_PROVIDER_OPENAI_COMPAT = "openai_compatible"
+LLM_PROVIDER_GEMINI = "gemini"
+GEMINI_OPENAI_BASE_URL = str(
+    os.getenv("BOOKFLOW_GEMINI_OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
+).strip()
+DEFAULT_LLM_PROVIDER = str(os.getenv("BOOKFLOW_LLM_PROVIDER", LLM_PROVIDER_OPENAI_COMPAT) or LLM_PROVIDER_OPENAI_COMPAT).strip()
+AUTH_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{5,127}$")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -99,6 +119,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return bool(default)
 
 
+AUTH_ALLOW_STATIC_TOKEN = _env_bool("BOOKFLOW_AUTH_ALLOW_STATIC_TOKEN", False)
+
+
 PDF_SECTION_STORAGE_MODE = str(os.getenv("BOOKFLOW_PDF_SECTION_STORAGE", "precut") or "precut").strip().lower()
 if PDF_SECTION_STORAGE_MODE not in {"precut", "on_demand"}:
     PDF_SECTION_STORAGE_MODE = "precut"
@@ -107,7 +130,10 @@ CACHE_ROOT = Path(os.getenv("BOOKFLOW_CACHE_ROOT", "data/cache"))
 COVER_CACHE_ROOT = Path(os.getenv("BOOKFLOW_COVER_CACHE_ROOT", str((CACHE_ROOT / "covers").as_posix())))
 PAGE_CACHE_ROOT = Path(os.getenv("BOOKFLOW_PAGE_CACHE_ROOT", str((CACHE_ROOT / "pages").as_posix())))
 COVER_CACHE_TTL_SEC = max(60, _env_int("BOOKFLOW_COVER_CACHE_TTL_SEC", 86400 * 7))
-PAGE_CACHE_TTL_SEC = max(60, _env_int("BOOKFLOW_PAGE_CACHE_TTL_SEC", 86400 * 7))
+PAGE_CACHE_TTL_SEC = max(60, _env_int("BOOKFLOW_PAGE_CACHE_TTL_SEC", 86400 * 30))
+PAGE_IMAGE_DPI = max(72, _env_int("BOOKFLOW_PAGE_IMAGE_DPI", 200))
+PAGE_IMAGE_JPEG_QUALITY = max(50, min(100, _env_int("BOOKFLOW_PAGE_IMAGE_JPEG_QUALITY", 92)))
+PAGE_IMAGE_HTTP_MAX_AGE_SEC = max(60, _env_int("BOOKFLOW_PAGE_IMAGE_HTTP_MAX_AGE_SEC", 86400 * 30))
 
 USER_EXPORT_ROOT = Path(os.getenv("BOOKFLOW_USER_EXPORT_DIR", "data/users/export"))
 AUTO_EXPORT_USER_STATE = _env_bool("BOOKFLOW_AUTO_EXPORT_USER_STATE", True)
@@ -157,12 +183,13 @@ VALID_EVENT_TYPES = {
     "skip",
     "confusion",
     "like",
+    "unlike",
     "comment",
 }
 
 _OCR_ENGINE: Any | None = None
 IMPORT_JOB_PROGRESS_RE = re.compile(
-    r"^\[(\d+)/(\d+)\]\s+(?:importing|skipping approved):\s+(.+?)(?:\s+\(book_type=.*\))?\s*$"
+    r"^\[(\d+)/(\d+)\]\s+(?:importing|skipping approved|skipping existing|skipping fingerprint match):\s+(.+?)(?:\s+\(book_type=.*\))?\s*$"
 )
 IMPORT_JOBS_LOCK = threading.Lock()
 IMPORT_JOBS: dict[str, dict[str, Any]] = {}
@@ -256,6 +283,83 @@ def safe_bool(raw: Any, default: bool = False) -> bool:
     if text in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def normalize_device_id(raw: Any) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if not AUTH_DEVICE_ID_RE.fullmatch(text):
+        return ""
+    return text
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _b64url_decode(text: str) -> bytes:
+    raw = str(text or "").strip()
+    pad = "=" * (-len(raw) % 4)
+    return base64.urlsafe_b64decode(raw + pad)
+
+
+def _sign_session_payload(payload_b64: str) -> str:
+    key = AUTH_SESSION_SECRET.encode("utf-8")
+    msg = str(payload_b64 or "").encode("utf-8")
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+
+def issue_auth_session_token(*, user_id: str, device_id: str) -> tuple[str, int]:
+    uid = ensure_uuid(user_id)
+    did = normalize_device_id(device_id)
+    if not did:
+        raise ValueError("invalid device_id")
+    now_ts = int(time.time())
+    exp_ts = now_ts + int(AUTH_SESSION_TTL_SEC)
+    payload = {"uid": uid, "did": did, "iat": now_ts, "exp": exp_ts}
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+    signature = _sign_session_payload(payload_b64)
+    return f"bf1.{payload_b64}.{signature}", exp_ts
+
+
+def decode_auth_session_token(token: str) -> dict[str, Any] | None:
+    raw = str(token or "").strip()
+    if not raw:
+        return None
+    parts = raw.split(".")
+    if len(parts) != 3 or parts[0] != "bf1":
+        return None
+    _, payload_b64, signature = parts
+    expected = _sign_session_payload(payload_b64)
+    if not hmac.compare_digest(str(signature), str(expected)):
+        return None
+    try:
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    uid = str(payload.get("uid") or "").strip()
+    try:
+        uid = ensure_uuid(uid)
+    except Exception:
+        return None
+    did = normalize_device_id(payload.get("did"))
+    if not did:
+        return None
+    exp_ts = safe_int(payload.get("exp"), None)
+    if exp_ts is None or int(exp_ts) <= int(time.time()):
+        return None
+    return {"user_id": uid, "device_id": did, "exp": int(exp_ts), "iat": safe_int(payload.get("iat"), 0) or 0}
+
+
+def parse_auth_user_id_from_token(token: str) -> str | None:
+    payload = decode_auth_session_token(token)
+    if not payload:
+        return None
+    uid = str(payload.get("user_id") or "").strip()
+    return uid or None
 
 
 def resolve_runtime_path(path: Path) -> Path:
@@ -894,8 +998,27 @@ def _unwrap_llm_output_to_toc_text(raw_text: str) -> str:
     return text
 
 
-def build_llm_chat_completions_url(base_url: str) -> str:
+def normalize_llm_provider(raw: Any) -> str:
+    text = str(raw or "").strip().lower()
+    if text in {"", "openai", "openai_compatible", "openai-compatible", "compat"}:
+        return LLM_PROVIDER_OPENAI_COMPAT
+    if text in {"gemini", "google_gemini", "google-gemini", "google"}:
+        return LLM_PROVIDER_GEMINI
+    return LLM_PROVIDER_OPENAI_COMPAT
+
+
+def _default_base_url_for_provider(provider: str) -> str:
+    provider_norm = normalize_llm_provider(provider)
+    if provider_norm == LLM_PROVIDER_GEMINI:
+        return str(GEMINI_OPENAI_BASE_URL or "").strip()
+    return str(LLM_TOC_BASE_URL or "").strip()
+
+
+def build_llm_chat_completions_url(base_url: str, *, provider: str = LLM_PROVIDER_OPENAI_COMPAT) -> str:
+    provider_norm = normalize_llm_provider(provider)
     base = str(base_url or "").strip()
+    if not base:
+        base = _default_base_url_for_provider(provider_norm)
     if not base:
         raise ValueError("llm.base_url is required")
     lower = base.lower().rstrip("/")
@@ -903,6 +1026,10 @@ def build_llm_chat_completions_url(base_url: str) -> str:
         return base
     parsed = urlparse(base)
     norm_path = str(parsed.path or "").strip().rstrip("/").lower()
+    # Gemini OpenAI compatibility endpoint:
+    # - https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+    if norm_path.endswith("/openai"):
+        return f"{base.rstrip('/')}/chat/completions"
     # 常见 OpenAI 兼容基址：
     # - .../v1
     # - .../api/v3（如火山方舟）
@@ -916,6 +1043,7 @@ def call_llm_toc_extract(
     *,
     image_data_url: str,
     prompt: str,
+    provider: str,
     base_url: str,
     api_key: str,
     model: str,
@@ -923,7 +1051,8 @@ def call_llm_toc_extract(
     max_tokens: int = 1800,
     allow_empty: bool = False,
 ) -> dict[str, Any]:
-    url = build_llm_chat_completions_url(base_url)
+    provider_norm = normalize_llm_provider(provider)
+    url = build_llm_chat_completions_url(base_url, provider=provider_norm)
     if not str(api_key or "").strip():
         raise ValueError("llm.api_key is required")
     if not str(model or "").strip():
@@ -988,12 +1117,14 @@ def call_llm_toc_extract(
 
 def call_llm_text_probe(
     *,
+    provider: str,
     base_url: str,
     api_key: str,
     model: str,
     timeout_sec: int,
 ) -> dict[str, Any]:
-    url = build_llm_chat_completions_url(base_url)
+    provider_norm = normalize_llm_provider(provider)
+    url = build_llm_chat_completions_url(base_url, provider=provider_norm)
     if not str(api_key or "").strip():
         raise ValueError("llm.api_key is required")
     if not str(model or "").strip():
@@ -1063,36 +1194,247 @@ def _read_llm_toc_config_file() -> dict[str, Any]:
     return payload
 
 
-def load_llm_toc_config() -> dict[str, Any]:
-    file_cfg = _read_llm_toc_config_file()
-    base_url = str(file_cfg.get("base_url") or LLM_TOC_BASE_URL or "").strip()
-    model = str(file_cfg.get("model") or LLM_TOC_MODEL or "").strip()
-    api_key = str(file_cfg.get("api_key") or LLM_TOC_API_KEY or "").strip()
-    prompt = str(file_cfg.get("prompt") or DEFAULT_LLM_TOC_PROMPT or "").strip()
+def sanitize_llm_profile_name(raw: Any, default: str = "default") -> str:
+    fallback_text = "default" if default is None else str(default)
+    text = str(raw or "").strip()
+    if not text:
+        return fallback_text.strip()[:64]
+    # 允许中文/Unicode 字母数字，避免中文配置名被归一化成同一个 default。
+    safe = re.sub(r"[^\w.\-:]+", "_", text, flags=re.UNICODE).strip("._:-")
+    if not safe:
+        safe = fallback_text.strip()
+    if not safe:
+        safe = "default"
+    return safe[:64]
+
+
+def _normalize_llm_profile_record(
+    raw: dict[str, Any] | None,
+    *,
+    fallback_name: str = "default",
+    fallback_prompt: str = DEFAULT_LLM_TOC_PROMPT,
+) -> dict[str, Any]:
+    src = raw if isinstance(raw, dict) else {}
+    provider_raw = str(src.get("provider") or "").strip()
+    provider = normalize_llm_provider(provider_raw)
+    if not provider_raw:
+        base_hint = str(src.get("base_url") or "").strip().lower()
+        model_hint = str(src.get("model") or "").strip().lower()
+        if (
+            "generativelanguage.googleapis.com" in base_hint
+            or "/v1beta/openai" in base_hint
+            or model_hint.startswith("gemini")
+        ):
+            provider = LLM_PROVIDER_GEMINI
+    name = sanitize_llm_profile_name(src.get("name") or src.get("profile_name"), default=fallback_name)
+    base_url = str(src.get("base_url") or "").strip()
+    if not base_url:
+        base_url = _default_base_url_for_provider(provider)
+    model = str(src.get("model") or "").strip()
+    api_key = str(src.get("api_key") or "").strip()
+    prompt = str(src.get("prompt") or fallback_prompt or DEFAULT_LLM_TOC_PROMPT).strip() or DEFAULT_LLM_TOC_PROMPT
     return {
+        "name": name,
+        "provider": provider,
         "base_url": base_url,
         "model": model,
         "api_key": api_key,
         "prompt": prompt,
+    }
+
+
+def _find_llm_profile(profiles: list[dict[str, Any]], profile_name: str) -> dict[str, Any] | None:
+    target = sanitize_llm_profile_name(profile_name, default="")
+    if not target:
+        return None
+    for row in profiles:
+        if sanitize_llm_profile_name(row.get("name"), default="") == target:
+            return row
+    return None
+
+
+def load_llm_toc_config() -> dict[str, Any]:
+    file_cfg = _read_llm_toc_config_file()
+    env_provider = normalize_llm_provider(DEFAULT_LLM_PROVIDER)
+    env_base = str(LLM_TOC_BASE_URL or "").strip() or _default_base_url_for_provider(env_provider)
+    env_model = str(LLM_TOC_MODEL or "").strip()
+    env_api_key = str(LLM_TOC_API_KEY or "").strip()
+    env_prompt = str(DEFAULT_LLM_TOC_PROMPT or "").strip() or DEFAULT_LLM_TOC_PROMPT
+
+    profiles: list[dict[str, Any]] = []
+    raw_profiles = file_cfg.get("profiles")
+    explicit_v2_profile_list = (
+        str(file_cfg.get("schema_version") or "").strip() == "bookflow.toc_llm_config.v2"
+        and isinstance(raw_profiles, list)
+    )
+    if isinstance(raw_profiles, list):
+        seen_names: set[str] = set()
+        for idx, item in enumerate(raw_profiles):
+            if not isinstance(item, dict):
+                continue
+            prof = _normalize_llm_profile_record(item, fallback_name=f"profile_{idx+1}", fallback_prompt=env_prompt)
+            key = sanitize_llm_profile_name(prof.get("name"), default=f"profile_{idx+1}")
+            if key in seen_names:
+                continue
+            seen_names.add(key)
+            profiles.append(prof)
+
+    if not profiles and not explicit_v2_profile_list:
+        legacy = _normalize_llm_profile_record(
+            {
+                "name": file_cfg.get("profile_name") or "default",
+                "provider": file_cfg.get("provider") or env_provider,
+                "base_url": file_cfg.get("base_url") or env_base,
+                "model": file_cfg.get("model") or env_model,
+                "api_key": file_cfg.get("api_key") or env_api_key,
+                "prompt": file_cfg.get("prompt") or env_prompt,
+            },
+            fallback_name="default",
+            fallback_prompt=env_prompt,
+        )
+        profiles = [legacy]
+
+    if explicit_v2_profile_list and not profiles:
+        return {
+            "provider": env_provider,
+            "profile_name": "",
+            "active_profile": "",
+            "base_url": env_base,
+            "model": env_model,
+            "api_key": env_api_key,
+            "prompt": env_prompt,
+            "profiles": [],
+            "updated_at": str(file_cfg.get("updated_at") or ""),
+        }
+
+    active_name = sanitize_llm_profile_name(file_cfg.get("active_profile") or file_cfg.get("profile_name"), default="")
+    active = _find_llm_profile(profiles, active_name) if active_name else None
+    if active is None and profiles:
+        active = profiles[0]
+
+    active = active or _normalize_llm_profile_record(
+        {
+            "name": "default",
+            "provider": env_provider,
+            "base_url": env_base,
+            "model": env_model,
+            "api_key": env_api_key,
+            "prompt": env_prompt,
+        },
+        fallback_name="default",
+        fallback_prompt=env_prompt,
+    )
+
+    # env fallback for active profile when file fields are empty
+    if not str(active.get("base_url") or "").strip():
+        active["base_url"] = env_base
+    if not str(active.get("model") or "").strip():
+        active["model"] = env_model
+    if not str(active.get("api_key") or "").strip():
+        active["api_key"] = env_api_key
+    if not str(active.get("prompt") or "").strip():
+        active["prompt"] = env_prompt
+
+    active_name = sanitize_llm_profile_name(active.get("name") or "default", default="default")
+    normalized_profiles: list[dict[str, Any]] = []
+    for row in profiles:
+        merged = dict(row)
+        if sanitize_llm_profile_name(merged.get("name"), default="") == active_name:
+            merged = {**merged, **active}
+        normalized_profiles.append(
+            {
+                "name": sanitize_llm_profile_name(merged.get("name") or "default", default="default"),
+                "provider": normalize_llm_provider(merged.get("provider")),
+                "base_url": str(merged.get("base_url") or "").strip(),
+                "model": str(merged.get("model") or "").strip(),
+                "api_key": str(merged.get("api_key") or "").strip(),
+                "prompt": str(merged.get("prompt") or env_prompt).strip() or env_prompt,
+            }
+        )
+
+    return {
+        "provider": normalize_llm_provider(active.get("provider")),
+        "profile_name": active_name,
+        "active_profile": active_name,
+        "base_url": str(active.get("base_url") or "").strip(),
+        "model": str(active.get("model") or "").strip(),
+        "api_key": str(active.get("api_key") or "").strip(),
+        "prompt": str(active.get("prompt") or env_prompt).strip() or env_prompt,
+        "profiles": normalized_profiles,
         "updated_at": str(file_cfg.get("updated_at") or ""),
     }
 
 
 def save_llm_toc_config(
     *,
+    provider: str,
+    profile_name: str,
     base_url: str,
     model: str,
     api_key: str,
     prompt: str,
     remember_api_key: bool = True,
+    set_active: bool = True,
 ) -> dict[str, Any]:
-    clean_base = str(base_url or "").strip()
+    current = load_llm_toc_config()
+    clean_provider = normalize_llm_provider(provider)
+    clean_name = sanitize_llm_profile_name(profile_name, default="default")
+    clean_base = str(base_url or "").strip() or _default_base_url_for_provider(clean_provider)
     clean_model = str(model or "").strip()
     clean_prompt = str(prompt or "").strip() or DEFAULT_LLM_TOC_PROMPT
-    clean_key = str(api_key or "").strip() if remember_api_key else ""
+    incoming_key = str(api_key or "").strip()
+    existing_profile = _find_llm_profile(list(current.get("profiles") or []), clean_name) or {}
+    existing_key = str(existing_profile.get("api_key") or "").strip()
+    clean_key = incoming_key if remember_api_key else ""
+    if remember_api_key and not clean_key:
+        clean_key = existing_key
+
+    profiles_in: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in list(current.get("profiles") or []):
+        if not isinstance(row, dict):
+            continue
+        key = sanitize_llm_profile_name(row.get("name"), default="")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        profiles_in.append(
+            _normalize_llm_profile_record(
+                row,
+                fallback_name=key,
+                fallback_prompt=DEFAULT_LLM_TOC_PROMPT,
+            )
+        )
+
+    upserted = {
+        "name": clean_name,
+        "provider": clean_provider,
+        "base_url": clean_base,
+        "model": clean_model,
+        "api_key": clean_key,
+        "prompt": clean_prompt,
+    }
+    replaced = False
+    for idx, row in enumerate(profiles_in):
+        if sanitize_llm_profile_name(row.get("name"), default="") == clean_name:
+            profiles_in[idx] = upserted
+            replaced = True
+            break
+    if not replaced:
+        profiles_in.append(upserted)
+
+    active_profile = sanitize_llm_profile_name(
+        clean_name if set_active else current.get("active_profile") or current.get("profile_name"),
+        default=clean_name,
+    )
     payload = {
-        "schema_version": "bookflow.toc_llm_config.v1",
+        "schema_version": "bookflow.toc_llm_config.v2",
         "updated_at": now_iso(),
+        "active_profile": active_profile,
+        "profiles": profiles_in,
+        # Keep top-level active profile for backward compatibility.
+        "provider": clean_provider,
+        "profile_name": clean_name,
         "base_url": clean_base,
         "model": clean_model,
         "api_key": clean_key,
@@ -1100,7 +1442,78 @@ def save_llm_toc_config(
     }
     LLM_TOC_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     LLM_TOC_CONFIG_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return payload
+    return load_llm_toc_config()
+
+
+def delete_llm_toc_profile(*, profile_name: str) -> dict[str, Any]:
+    current = load_llm_toc_config()
+    target = sanitize_llm_profile_name(profile_name, default="")
+    if not target:
+        return current
+
+    profiles_in: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in list(current.get("profiles") or []):
+        if not isinstance(row, dict):
+            continue
+        key = sanitize_llm_profile_name(row.get("name"), default="")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        profiles_in.append(
+            _normalize_llm_profile_record(
+                row,
+                fallback_name=key,
+                fallback_prompt=DEFAULT_LLM_TOC_PROMPT,
+            )
+        )
+
+    profiles_out = [
+        row
+        for row in profiles_in
+        if sanitize_llm_profile_name(row.get("name"), default="") != target
+    ]
+
+    active_in = sanitize_llm_profile_name(
+        current.get("active_profile") or current.get("profile_name"),
+        default="",
+    )
+    active_out = ""
+    active: dict[str, Any] | None = None
+    if profiles_out:
+        active_out = active_in if active_in and active_in != target else ""
+        if active_out:
+            found = _find_llm_profile(profiles_out, active_out)
+            if found is None:
+                active_out = ""
+        if not active_out:
+            active_out = sanitize_llm_profile_name(profiles_out[0].get("name") or "default", default="default")
+        active = _find_llm_profile(profiles_out, active_out) or profiles_out[0]
+
+    provider_out = normalize_llm_provider(active.get("provider") if isinstance(active, dict) else current.get("provider"))
+    profile_name_out = sanitize_llm_profile_name(active.get("name") if isinstance(active, dict) else "", default="")
+    base_out = str(active.get("base_url") if isinstance(active, dict) else current.get("base_url") or "").strip()
+    model_out = str(active.get("model") if isinstance(active, dict) else current.get("model") or "").strip()
+    api_key_out = str(active.get("api_key") if isinstance(active, dict) else current.get("api_key") or "").strip()
+    prompt_out = str(
+        active.get("prompt") if isinstance(active, dict) else current.get("prompt") or DEFAULT_LLM_TOC_PROMPT
+    ).strip() or DEFAULT_LLM_TOC_PROMPT
+    payload = {
+        "schema_version": "bookflow.toc_llm_config.v2",
+        "updated_at": now_iso(),
+        "active_profile": active_out,
+        "profiles": profiles_out,
+        # Keep top-level active profile for backward compatibility.
+        "provider": provider_out,
+        "profile_name": profile_name_out,
+        "base_url": base_out,
+        "model": model_out,
+        "api_key": api_key_out,
+        "prompt": prompt_out,
+    }
+    LLM_TOC_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LLM_TOC_CONFIG_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return load_llm_toc_config()
 
 
 def _image_file_to_data_url(path: Path) -> str:
@@ -1991,7 +2404,10 @@ class BookFlowStore:
         self.backend = "postgres" if self.dsn else "memory"
         self.seed_items = load_seed_items()
         self.mem_section_complete: set[tuple[str, str, str]] = set()
+        self.mem_archived_chunks: set[tuple[str, str]] = set()
         self.mem_idempotency: set[tuple[str, str]] = set()
+        if self.backend == "postgres":
+            self._apply_runtime_schema_patches()
 
     def _connect(self):
         if not self.dsn or psycopg is None:
@@ -2002,6 +2418,19 @@ class BookFlowStore:
             autocommit=True,
             connect_timeout=int(DB_CONNECT_TIMEOUT_SEC),
         )
+
+    def _apply_runtime_schema_patches(self) -> None:
+        # Keep legacy databases compatible with current interaction behaviors.
+        # 1) ensure 'unlike' event_type exists (toggle like support)
+        # 2) drop obsolete daily de-dup index for section_complete
+        try:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("ALTER TYPE event_type_enum ADD VALUE IF NOT EXISTS 'unlike'")
+                    cur.execute("DROP INDEX IF EXISTS uniq_section_complete_daily")
+        except Exception:
+            # Non-fatal: server should still boot even if schema patch cannot run.
+            return
 
     def ensure_user(self, user_id: str) -> None:
         if self.backend != "postgres":
@@ -2177,7 +2606,11 @@ class BookFlowStore:
                       b.id::text AS book_id,
                       b.title AS book_title,
                       COUNT(*)::int AS event_count,
-                      COUNT(*) FILTER (WHERE i.event_type = 'like')::int AS like_count,
+                      GREATEST(
+                        0,
+                        COUNT(*) FILTER (WHERE i.event_type = 'like')::int
+                        - COUNT(*) FILTER (WHERE i.event_type = 'unlike')::int
+                      ) AS like_count,
                       COUNT(*) FILTER (WHERE i.event_type = 'comment')::int AS comment_count,
                       COUNT(*) FILTER (WHERE i.event_type = 'section_complete')::int AS complete_count,
                       COALESCE(SUM(
@@ -2218,7 +2651,11 @@ class BookFlowStore:
                     """
                     SELECT
                       COUNT(*)::int AS accepted_event_count,
-                      COUNT(*) FILTER (WHERE event_type = 'like')::int AS like_count,
+                      GREATEST(
+                        0,
+                        COUNT(*) FILTER (WHERE event_type = 'like')::int
+                        - COUNT(*) FILTER (WHERE event_type = 'unlike')::int
+                      ) AS like_count,
                       COUNT(*) FILTER (WHERE event_type = 'comment')::int AS comment_count,
                       COUNT(*) FILTER (WHERE event_type = 'section_complete')::int AS complete_count,
                       COALESCE(SUM(
@@ -2343,13 +2780,17 @@ class BookFlowStore:
 
     def _fetch_feed_memory(self, *, limit: int, offset: int, user_id: str | None) -> list[dict[str, Any]]:
         done: set[str] = set()
+        archived: set[str] = set()
         if user_id:
             for uid, cid, _sid in self.mem_section_complete:
                 if uid == user_id:
                     done.add(cid)
+            for uid, cid in self.mem_archived_chunks:
+                if uid == user_id:
+                    archived.add(cid)
 
         ranked = sorted(
-            self.seed_items,
+            [x for x in self.seed_items if str(x.get("chunk_id") or "") not in archived],
             key=lambda x: (
                 1 if str(x.get("chunk_id")) in done else 0,
                 str(x.get("book_id") or ""),
@@ -2380,6 +2821,8 @@ class BookFlowStore:
         params: list[Any] = []
         completion_join = ""
         completion_select = "0::int AS done"
+        archive_join = ""
+        archive_filter = ""
 
         if user_id:
             self.ensure_user(user_id)
@@ -2395,6 +2838,28 @@ class BookFlowStore:
             ) d ON TRUE
             """
             completion_select = "COALESCE(d.done, 0) AS done"
+            params.append(ensure_uuid(user_id))
+            archive_join = """
+            LEFT JOIN LATERAL (
+              SELECT
+                CASE
+                  WHEN COALESCE(i.payload->>'archive_feed', 'false') = 'true' THEN TRUE
+                  ELSE FALSE
+                END AS archived
+              FROM interactions i
+              WHERE i.user_id = %s::uuid
+                AND i.book_id = c.book_id
+                AND i.chunk_id = c.id
+                AND i.event_type = 'skip'
+                AND (
+                  COALESCE(i.payload->>'action', '') = 'archive_from_feed'
+                  OR i.payload ? 'archive_feed'
+                )
+              ORDER BY i.event_ts DESC, i.id DESC
+              LIMIT 1
+            ) h ON TRUE
+            """
+            archive_filter = "AND COALESCE(h.archived, FALSE) = FALSE"
             params.append(ensure_uuid(user_id))
 
         sql = f"""
@@ -2435,7 +2900,11 @@ class BookFlowStore:
           JOIN latest_books lb ON lb.id = b.id
           LEFT JOIN LATERAL (
             SELECT
-              COUNT(*) FILTER (WHERE i.event_type = 'like')::int AS like_count,
+              GREATEST(
+                0,
+                COUNT(*) FILTER (WHERE i.event_type = 'like')::int
+                - COUNT(*) FILTER (WHERE i.event_type = 'unlike')::int
+              ) AS like_count,
               COUNT(*) FILTER (WHERE i.event_type = 'comment')::int AS comment_count,
               COUNT(*) FILTER (WHERE i.event_type = 'section_complete')::int AS complete_count
             FROM interactions i
@@ -2443,10 +2912,12 @@ class BookFlowStore:
               AND i.chunk_id = c.id
           ) s ON TRUE
           {completion_join}
+          {archive_join}
           WHERE COALESCE(c.metadata->>'content_type', '') = 'pdf_section'
             AND COALESCE(b.metadata->>'needs_manual_toc', 'false') <> 'true'
             AND COALESCE(b.metadata->>'materialization_status', 'materialized') <> 'pending_manual_toc'
             AND COALESCE(NULLIF(b.metadata->>'toc_review_status', ''), 'pending_review') = 'approved'
+            {archive_filter}
         ),
         ranked AS (
           SELECT
@@ -2532,16 +3003,39 @@ class BookFlowStore:
         JOIN book_chunks c ON c.id = mp.source_chunk_id
         LEFT JOIN LATERAL (
           SELECT
-            COUNT(*) FILTER (WHERE i.event_type = 'like')::int AS like_count,
+            GREATEST(
+              0,
+              COUNT(*) FILTER (WHERE i.event_type = 'like')::int
+              - COUNT(*) FILTER (WHERE i.event_type = 'unlike')::int
+            ) AS like_count,
             COUNT(*) FILTER (WHERE i.event_type = 'comment')::int AS comment_count,
             COUNT(*) FILTER (WHERE i.event_type = 'section_complete')::int AS complete_count
           FROM interactions i
           WHERE i.book_id = c.book_id
             AND i.chunk_id = c.id
         ) s ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT
+            CASE
+              WHEN COALESCE(i2.payload->>'archive_feed', 'false') = 'true' THEN TRUE
+              ELSE FALSE
+            END AS archived
+          FROM interactions i2
+          WHERE i2.user_id = mp.user_id
+            AND i2.book_id = mp.source_book_id
+            AND i2.chunk_id = mp.source_chunk_id
+            AND i2.event_type = 'skip'
+            AND (
+              COALESCE(i2.payload->>'action', '') = 'archive_from_feed'
+              OR i2.payload ? 'archive_feed'
+            )
+          ORDER BY i2.event_ts DESC, i2.id DESC
+          LIMIT 1
+        ) h ON TRUE
         WHERE mp.user_id = %s::uuid
           AND mp.status = 'inserted'
           AND COALESCE(NULLIF(b.metadata->>'toc_review_status', ''), 'pending_review') = 'approved'
+          AND COALESCE(h.archived, FALSE) = FALSE
         ORDER BY mp.source_date DESC, mp.created_at DESC
         LIMIT %s
         """
@@ -2571,7 +3065,21 @@ class BookFlowStore:
             )
         return out
 
-    def fetch_chunk_detail(self, *, chunk_id: str, book_id: str | None = None) -> dict[str, Any] | None:
+    def fetch_chunk_detail(
+        self,
+        *,
+        chunk_id: str,
+        book_id: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        viewer_uuid: str | None = None
+        if user_id:
+            try:
+                viewer_uuid = ensure_uuid(user_id)
+                self.ensure_user(viewer_uuid)
+            except Exception:
+                viewer_uuid = None
+
         if self.backend == "memory":
             for row in self.seed_items:
                 if str(row.get("chunk_id")) != str(chunk_id):
@@ -2597,11 +3105,79 @@ class BookFlowStore:
                     "section_pdf_relpath": metadata.get("section_pdf_relpath"),
                     "page_start": source_anchor.get("page_start"),
                     "page_end": source_anchor.get("page_end"),
+                    "like_count": 0,
+                    "comment_count": 0,
+                    "complete_count": 0,
+                    "interaction_summary": {
+                        "like_count": 0,
+                        "comment_count": 0,
+                        "complete_count": 0,
+                    },
+                    "viewer_like_active": False,
+                    "viewer_archive_active": bool(
+                        viewer_uuid and (viewer_uuid, str(row.get("chunk_id") or "")) in self.mem_archived_chunks
+                    ),
+                    "viewer_complete_count": 0,
+                    "viewer_interaction_summary": {
+                        "like_active": False,
+                        "archive_active": bool(
+                            viewer_uuid and (viewer_uuid, str(row.get("chunk_id") or "")) in self.mem_archived_chunks
+                        ),
+                        "complete_count": 0,
+                    },
                 }
             return None
 
-        params: list[Any] = [ensure_uuid(chunk_id)]
-        sql = """
+        params: list[Any] = []
+        viewer_join = ""
+        viewer_select = """
+          0::int AS viewer_like_count,
+          0::int AS viewer_unlike_count,
+          0::int AS viewer_complete_count,
+          FALSE::boolean AS viewer_archive_active
+        """
+        if viewer_uuid:
+            viewer_join = """
+        LEFT JOIN LATERAL (
+          SELECT
+            COUNT(*) FILTER (WHERE i.event_type = 'like')::int AS viewer_like_count,
+            COUNT(*) FILTER (WHERE i.event_type = 'unlike')::int AS viewer_unlike_count,
+            COUNT(*) FILTER (WHERE i.event_type = 'section_complete')::int AS viewer_complete_count
+          FROM interactions i
+          WHERE i.user_id = %s::uuid
+            AND i.book_id = c.book_id
+            AND i.chunk_id = c.id
+        ) v ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT
+            CASE
+              WHEN COALESCE(i.payload->>'archive_feed', 'false') = 'true' THEN TRUE
+              ELSE FALSE
+            END AS viewer_archive_active
+          FROM interactions i
+          WHERE i.user_id = %s::uuid
+            AND i.book_id = c.book_id
+            AND i.chunk_id = c.id
+            AND i.event_type = 'skip'
+            AND (
+              COALESCE(i.payload->>'action', '') = 'archive_from_feed'
+              OR i.payload ? 'archive_feed'
+            )
+          ORDER BY i.event_ts DESC, i.id DESC
+          LIMIT 1
+        ) va ON TRUE
+        """
+            viewer_select = """
+          COALESCE(v.viewer_like_count, 0) AS viewer_like_count,
+          COALESCE(v.viewer_unlike_count, 0) AS viewer_unlike_count,
+          COALESCE(v.viewer_complete_count, 0) AS viewer_complete_count,
+          COALESCE(va.viewer_archive_active, FALSE) AS viewer_archive_active
+        """
+            params.append(viewer_uuid)
+            params.append(viewer_uuid)
+
+        params.append(ensure_uuid(chunk_id))
+        sql = f"""
         SELECT
           c.id::text AS chunk_id,
           c.book_id::text AS book_id,
@@ -2611,9 +3187,27 @@ class BookFlowStore:
           c.text_content,
           COALESCE(c.teaser_text, LEFT(c.text_content, 120) || '...') AS teaser_text,
           c.source_anchor,
-          c.metadata
+          c.metadata,
+          COALESCE(s.like_count, 0) AS like_count,
+          COALESCE(s.comment_count, 0) AS comment_count,
+          COALESCE(s.complete_count, 0) AS complete_count,
+          {viewer_select}
         FROM book_chunks c
         JOIN books b ON b.id = c.book_id
+        LEFT JOIN LATERAL (
+          SELECT
+            GREATEST(
+              0,
+              COUNT(*) FILTER (WHERE i.event_type = 'like')::int
+              - COUNT(*) FILTER (WHERE i.event_type = 'unlike')::int
+            ) AS like_count,
+            COUNT(*) FILTER (WHERE i.event_type = 'comment')::int AS comment_count,
+            COUNT(*) FILTER (WHERE i.event_type = 'section_complete')::int AS complete_count
+          FROM interactions i
+          WHERE i.book_id = c.book_id
+            AND i.chunk_id = c.id
+        ) s ON TRUE
+        {viewer_join}
         WHERE c.id = %s::uuid
         """
         if book_id:
@@ -2634,6 +3228,11 @@ class BookFlowStore:
         section_pdf_url = metadata.get("section_pdf_url")
         if not section_pdf_url and content_type == "pdf_section":
             section_pdf_url = f"/v1/chunk_pdf?book_id={row['book_id']}&chunk_id={row['chunk_id']}"
+        viewer_like_count = int(row.get("viewer_like_count") or 0)
+        viewer_unlike_count = int(row.get("viewer_unlike_count") or 0)
+        viewer_complete_count = int(row.get("viewer_complete_count") or 0)
+        viewer_like_active = viewer_like_count > viewer_unlike_count
+        viewer_archive_active = bool(row.get("viewer_archive_active"))
 
         return {
             "book_id": row["book_id"],
@@ -2648,6 +3247,22 @@ class BookFlowStore:
             "section_pdf_relpath": metadata.get("section_pdf_relpath"),
             "page_start": source_anchor.get("page_start"),
             "page_end": source_anchor.get("page_end"),
+            "like_count": int(row.get("like_count") or 0),
+            "comment_count": int(row.get("comment_count") or 0),
+            "complete_count": int(row.get("complete_count") or 0),
+            "interaction_summary": {
+                "like_count": int(row.get("like_count") or 0),
+                "comment_count": int(row.get("comment_count") or 0),
+                "complete_count": int(row.get("complete_count") or 0),
+            },
+            "viewer_like_active": bool(viewer_like_active),
+            "viewer_archive_active": viewer_archive_active,
+            "viewer_complete_count": max(0, viewer_complete_count),
+            "viewer_interaction_summary": {
+                "like_active": bool(viewer_like_active),
+                "archive_active": viewer_archive_active,
+                "complete_count": max(0, viewer_complete_count),
+            },
         }
 
     def fetch_chunk_context(self, *, chunk_id: str, book_id: str | None = None) -> dict[str, Any] | None:
@@ -2732,6 +3347,83 @@ class BookFlowStore:
             "next_title": next_row.get("title") if next_row else None,
         }
 
+    def fetch_chunk_comments(
+        self,
+        *,
+        chunk_id: str,
+        book_id: str | None,
+        viewer_user_id: str | None,
+        limit: int,
+    ) -> dict[str, Any] | None:
+        try:
+            chunk_uuid = ensure_uuid(chunk_id)
+            book_uuid = ensure_uuid(book_id) if book_id else None
+        except Exception:
+            return None
+
+        viewer_uuid: str | None = None
+        if viewer_user_id:
+            try:
+                viewer_uuid = ensure_uuid(viewer_user_id)
+            except Exception:
+                viewer_uuid = None
+
+        if self.backend == "memory":
+            return {
+                "chunk_id": str(chunk_uuid),
+                "book_id": str(book_uuid) if book_uuid else None,
+                "count": 0,
+                "items": [],
+            }
+
+        params: list[Any] = [chunk_uuid]
+        sql = """
+        SELECT
+          i.event_id::text AS comment_id,
+          i.event_ts,
+          i.user_id::text AS user_id,
+          COALESCE(NULLIF(i.payload->>'text', ''), '') AS comment_text
+        FROM interactions i
+        WHERE i.event_type = 'comment'
+          AND i.chunk_id = %s::uuid
+        """
+        if book_uuid:
+            sql += " AND i.book_id = %s::uuid"
+            params.append(book_uuid)
+        sql += """
+          AND COALESCE(NULLIF(i.payload->>'text', ''), '') <> ''
+        ORDER BY i.event_ts DESC
+        LIMIT %s
+        """
+        params.append(max(1, min(100, int(limit))))
+
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, tuple(params))
+                rows = cur.fetchall()
+
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            uid = str(row.get("user_id") or "")
+            is_me = bool(viewer_uuid and uid == viewer_uuid)
+            items.append(
+                {
+                    "comment_id": row.get("comment_id"),
+                    "user_id": uid,
+                    "user_label": "我" if is_me else f"用户{uid[:8]}",
+                    "is_me": is_me,
+                    "text": str(row.get("comment_text") or ""),
+                    "event_ts": row.get("event_ts").isoformat() if row.get("event_ts") else None,
+                }
+            )
+
+        return {
+            "chunk_id": str(chunk_uuid),
+            "book_id": str(book_uuid) if book_uuid else None,
+            "count": len(items),
+            "items": items,
+        }
+
     def fetch_book_mosaic(self, *, book_id: str, user_id: str | None, min_read_events: int = 1) -> dict[str, Any] | None:
         threshold = max(1, int(min_read_events))
 
@@ -2741,19 +3433,27 @@ class BookFlowStore:
             if not rows:
                 return None
             completed = set()
+            archived = set()
             if user_id:
                 for uid, cid, _sid in self.mem_section_complete:
                     if uid == user_id:
                         completed.add(cid)
+                for uid, cid in self.mem_archived_chunks:
+                    if uid == user_id:
+                        archived.add(cid)
 
             tiles: list[dict[str, Any]] = []
             read_count = 0
+            archived_count = 0
             for row in rows:
                 cid = str(row.get("chunk_id") or "")
                 read_events = 1 if cid in completed else 0
+                archive_active = cid in archived
                 state = "read" if read_events >= threshold else "unread"
                 if state == "read":
                     read_count += 1
+                if archive_active:
+                    archived_count += 1
                 tiles.append(
                     {
                         "chunk_id": cid,
@@ -2761,6 +3461,8 @@ class BookFlowStore:
                         "section_id": row.get("section_id"),
                         "chunk_title": row.get("title"),
                         "read_events": read_events,
+                        "archive_active": bool(archive_active),
+                        "feed_state": "archived" if archive_active else "visible",
                         "state": state,
                     }
                 )
@@ -2774,6 +3476,8 @@ class BookFlowStore:
                     "total_chunks": total,
                     "read_chunks": read_count,
                     "unread_chunks": total - read_count,
+                    "archived_chunks": archived_count,
+                    "visible_chunks": total - archived_count,
                     "completion_rate": round(read_count / total, 4) if total > 0 else 0.0,
                 },
                 "tiles": tiles,
@@ -2794,7 +3498,8 @@ class BookFlowStore:
               c.global_index,
               c.section_id,
               c.title AS chunk_title,
-              COALESCE(stats.read_events, 0) AS read_events
+              COALESCE(stats.read_events, 0) AS read_events,
+              COALESCE(archive_stats.archive_active, FALSE) AS archive_active
             FROM books b
             JOIN book_chunks c ON c.book_id = b.id
             LEFT JOIN LATERAL (
@@ -2805,10 +3510,28 @@ class BookFlowStore:
                 AND i.chunk_id = c.id
                 AND i.event_type = 'section_complete'
             ) stats ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT
+                CASE
+                  WHEN COALESCE(i.payload->>'archive_feed', 'false') = 'true' THEN TRUE
+                  ELSE FALSE
+                END AS archive_active
+              FROM interactions i
+              WHERE i.user_id = %s::uuid
+                AND i.book_id = c.book_id
+                AND i.chunk_id = c.id
+                AND i.event_type = 'skip'
+                AND (
+                  COALESCE(i.payload->>'action', '') = 'archive_from_feed'
+                  OR i.payload ? 'archive_feed'
+                )
+              ORDER BY i.event_ts DESC, i.id DESC
+              LIMIT 1
+            ) archive_stats ON TRUE
             WHERE b.id = %s::uuid
             ORDER BY c.global_index ASC
             """
-            params = (user_uuid, book_uuid)
+            params = (user_uuid, user_uuid, book_uuid)
         else:
             sql = """
             SELECT
@@ -2817,7 +3540,8 @@ class BookFlowStore:
               c.global_index,
               c.section_id,
               c.title AS chunk_title,
-              0::int AS read_events
+              0::int AS read_events,
+              FALSE::boolean AS archive_active
             FROM books b
             JOIN book_chunks c ON c.book_id = b.id
             WHERE b.id = %s::uuid
@@ -2835,11 +3559,15 @@ class BookFlowStore:
 
         tiles: list[dict[str, Any]] = []
         read_count = 0
+        archived_count = 0
         for row in rows:
             read_events = int(row.get("read_events") or 0)
+            archive_active = bool(row.get("archive_active"))
             state = "read" if read_events >= threshold else "unread"
             if state == "read":
                 read_count += 1
+            if archive_active:
+                archived_count += 1
             tiles.append(
                 {
                     "chunk_id": row["chunk_id"],
@@ -2847,6 +3575,8 @@ class BookFlowStore:
                     "section_id": row.get("section_id"),
                     "chunk_title": row.get("chunk_title"),
                     "read_events": read_events,
+                    "archive_active": archive_active,
+                    "feed_state": "archived" if archive_active else "visible",
                     "state": state,
                 }
             )
@@ -2861,6 +3591,8 @@ class BookFlowStore:
                 "total_chunks": total,
                 "read_chunks": read_count,
                 "unread_chunks": total - read_count,
+                "archived_chunks": archived_count,
+                "visible_chunks": total - archived_count,
                 "completion_rate": round(read_count / total, 4) if total > 0 else 0.0,
             },
             "tiles": tiles,
@@ -2895,6 +3627,16 @@ class BookFlowStore:
                     section_id = str(payload.get("section_id") or "")
                     if section_id:
                         self.mem_section_complete.add((user_id, str(event.get("chunk_id")), section_id))
+                if str(event.get("event_type")) == "skip":
+                    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+                    action = str(payload.get("action") or "")
+                    if action == "archive_from_feed" or "archive_feed" in payload:
+                        archive_feed = safe_bool(payload.get("archive_feed"), False)
+                        key = (user_id, str(event.get("chunk_id")))
+                        if archive_feed:
+                            self.mem_archived_chunks.add(key)
+                        else:
+                            self.mem_archived_chunks.discard(key)
 
                 accepted += 1
                 results.append({"event_id": event_id, "status": "accepted"})
@@ -3043,6 +3785,9 @@ class BookFlowStore:
             if not str(payload.get("from_chunk_id") or "").strip():
                 return "rejected", "INVALID_PAYLOAD"
             if not str(payload.get("to_chunk_id") or "").strip():
+                return "rejected", "INVALID_PAYLOAD"
+        if event_type == "skip" and safe_bool(payload.get("archive_feed"), False):
+            if not str(payload.get("archive_reason") or "").strip():
                 return "rejected", "INVALID_PAYLOAD"
 
         return "ok", None
@@ -3230,14 +3975,71 @@ class BookFlowHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         return
 
+    def _extract_bearer_token(self) -> str:
+        auth = str(self.headers.get("Authorization", "") or "").strip()
+        if not auth.lower().startswith("bearer "):
+            return ""
+        return str(auth[7:]).strip()
+
+    def _query_token(self, parsed: Any | None) -> str:
+        if parsed is None:
+            return ""
+        params = parse_qs(parsed.query)
+        return str(params.get("token", [""])[0] or "").strip()
+
+    def _request_device_id(self, *, parsed: Any | None = None, payload: dict[str, Any] | None = None) -> str:
+        header_did = normalize_device_id(self.headers.get("X-BookFlow-Device-ID"))
+        if header_did:
+            return header_did
+        if payload and isinstance(payload, dict):
+            body_did = normalize_device_id(payload.get("device_id") or payload.get("did"))
+            if body_did:
+                return body_did
+        if parsed is not None:
+            params = parse_qs(parsed.query)
+            query_did = normalize_device_id(params.get("device_id", [""])[0] or "")
+            if query_did:
+                return query_did
+        return ""
+
+    def _validate_session_token(self, token: str, *, parsed: Any | None = None) -> dict[str, Any] | None:
+        payload = decode_auth_session_token(token)
+        if not payload:
+            return None
+        request_did = self._request_device_id(parsed=parsed)
+        token_did = normalize_device_id(payload.get("device_id"))
+        if not request_did or not token_did:
+            return None
+        if not hmac.compare_digest(str(request_did), str(token_did)):
+            return None
+        return payload
+
+    def _is_valid_auth_token(self, token: str, *, parsed: Any | None = None) -> bool:
+        raw = str(token or "").strip()
+        if not raw:
+            return False
+        if AUTH_ALLOW_STATIC_TOKEN and raw == TOKEN:
+            return True
+        return self._validate_session_token(raw, parsed=parsed) is not None
+
+    def _auth_user_id(self, *, parsed: Any | None = None) -> str | None:
+        bearer = self._extract_bearer_token()
+        bearer_payload = self._validate_session_token(bearer, parsed=parsed)
+        if bearer_payload:
+            return str(bearer_payload.get("user_id") or "").strip() or None
+        query_tok = self._query_token(parsed)
+        query_payload = self._validate_session_token(query_tok, parsed=parsed)
+        if query_payload:
+            return str(query_payload.get("user_id") or "").strip() or None
+        if AUTH_ALLOW_STATIC_TOKEN and (bearer == TOKEN or query_tok == TOKEN):
+            return SINGLE_USER_ID
+        return None
+
     def _authorized(self, *, allow_query_token: bool = False, parsed: Any | None = None) -> bool:
-        auth = self.headers.get("Authorization", "")
-        if auth == f"Bearer {TOKEN}":
+        if self._is_valid_auth_token(self._extract_bearer_token(), parsed=parsed):
             return True
         if allow_query_token and parsed is not None:
-            params = parse_qs(parsed.query)
-            token = str(params.get("token", [""])[0] or "")
-            return token == TOKEN
+            return self._is_valid_auth_token(self._query_token(parsed), parsed=parsed)
         return False
 
     def _read_json(self) -> dict[str, Any] | None:
@@ -3271,10 +4073,14 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 },
             )
 
+        if parsed.path == "/v1/auth/session":
+            return self.handle_auth_session(parsed)
         if parsed.path == "/v1/feed":
             return self.handle_feed(parsed)
         if parsed.path == "/v1/chunk_detail":
             return self.handle_chunk_detail(parsed)
+        if parsed.path == "/v1/chunk_comments":
+            return self.handle_chunk_comments(parsed)
         if parsed.path == "/v1/chunk_context":
             return self.handle_chunk_context(parsed)
         if parsed.path == "/v1/chunk_pdf":
@@ -3306,6 +4112,10 @@ class BookFlowHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
+        if parsed.path == "/v1/auth/login":
+            return self.handle_auth_login()
+        if parsed.path == "/v1/auth/logout":
+            return self.handle_auth_logout(parsed)
         if parsed.path == "/v1/interactions":
             return self.handle_interactions()
         if parsed.path == "/v1/books/import":
@@ -3337,6 +4147,64 @@ class BookFlowHandler(BaseHTTPRequestHandler):
 
         return error_response(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Path not found")
 
+    def handle_auth_login(self) -> None:
+        payload = self._read_json()
+        if payload is None:
+            return
+        username = str(payload.get("username") or "").strip()
+        password = str(payload.get("password") or "")
+        device_id = self._request_device_id(payload=payload)
+        if not username or not password:
+            return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_PAYLOAD", "username and password are required")
+        if not device_id:
+            return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_PAYLOAD", "device_id is required")
+        if username != AUTH_USERNAME or password != AUTH_PASSWORD:
+            return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "用户名或密码错误")
+
+        try:
+            STORE.ensure_user(SINGLE_USER_ID)
+        except Exception:
+            pass
+        token, exp_ts = issue_auth_session_token(user_id=SINGLE_USER_ID, device_id=device_id)
+        exp_iso = datetime.fromtimestamp(exp_ts, tz=timezone.utc).isoformat()
+        return json_response(
+            self,
+            HTTPStatus.OK,
+            {
+                "status": "ok",
+                "token": token,
+                "user_id": SINGLE_USER_ID,
+                "device_id": device_id,
+                "username": AUTH_USERNAME,
+                "expires_at": exp_iso,
+                "schema_version": "bookflow.auth.v1",
+            },
+        )
+
+    def handle_auth_session(self, parsed: Any) -> None:
+        if not self._authorized(parsed=parsed):
+            return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
+        user_id = self._auth_user_id(parsed=parsed)
+        if not user_id:
+            return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
+        device_id = self._request_device_id(parsed=parsed)
+        return json_response(
+            self,
+            HTTPStatus.OK,
+            {
+                "status": "ok",
+                "user_id": user_id,
+                "device_id": device_id,
+                "username": AUTH_USERNAME,
+                "schema_version": "bookflow.auth.v1",
+            },
+        )
+
+    def handle_auth_logout(self, parsed: Any) -> None:
+        if not self._authorized(parsed=parsed):
+            return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
+        return json_response(self, HTTPStatus.OK, {"status": "ok", "schema_version": "bookflow.auth.v1"})
+
     def handle_feed(self, parsed: Any) -> None:
         if not self._authorized(parsed=parsed):
             return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
@@ -3355,6 +4223,8 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "Invalid cursor")
 
         user_id = str(params.get("user_id", [""])[0] or "").strip() or None
+        if not user_id:
+            user_id = self._auth_user_id(parsed=parsed)
         if user_id:
             try:
                 user_id = ensure_uuid(user_id)
@@ -3379,11 +4249,19 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         chunk_id = str(params.get("chunk_id", [""])[0] or "").strip()
         book_id = str(params.get("book_id", [""])[0] or "").strip() or None
+        user_id = str(params.get("user_id", [""])[0] or "").strip() or None
+        if not user_id:
+            user_id = self._auth_user_id(parsed=parsed)
         if not chunk_id:
             return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "chunk_id is required")
+        if user_id:
+            try:
+                user_id = ensure_uuid(user_id)
+            except Exception:
+                return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "Invalid user_id")
 
         try:
-            detail = STORE.fetch_chunk_detail(chunk_id=chunk_id, book_id=book_id)
+            detail = STORE.fetch_chunk_detail(chunk_id=chunk_id, book_id=book_id, user_id=user_id)
         except Exception:
             return error_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Failed to fetch chunk detail")
 
@@ -3391,6 +4269,43 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             return error_response(self, HTTPStatus.NOT_FOUND, "NOT_FOUND", "Chunk not found")
 
         return json_response(self, HTTPStatus.OK, detail)
+
+    def handle_chunk_comments(self, parsed: Any) -> None:
+        if not self._authorized(parsed=parsed):
+            return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
+
+        params = parse_qs(parsed.query)
+        chunk_id = str(params.get("chunk_id", [""])[0] or "").strip()
+        book_id = str(params.get("book_id", [""])[0] or "").strip() or None
+        user_id = str(params.get("user_id", [""])[0] or "").strip() or None
+        if not user_id:
+            user_id = self._auth_user_id(parsed=parsed)
+        limit = safe_int(params.get("limit", ["30"])[0], 30) or 30
+        if not chunk_id:
+            return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "chunk_id is required")
+        if limit <= 0 or limit > 100:
+            return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "limit must be in 1..100")
+        if user_id:
+            try:
+                user_id = ensure_uuid(user_id)
+            except Exception:
+                return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "Invalid user_id")
+
+        try:
+            payload = STORE.fetch_chunk_comments(
+                chunk_id=chunk_id,
+                book_id=book_id,
+                viewer_user_id=user_id,
+                limit=int(limit),
+            )
+        except Exception:
+            return error_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Failed to fetch chunk comments")
+
+        if payload is None:
+            return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "Invalid chunk_id or book_id")
+
+        payload["schema_version"] = "bookflow.chunk_comments.v1"
+        return json_response(self, HTTPStatus.OK, payload)
 
     def handle_chunk_context(self, parsed: Any) -> None:
         if not self._authorized(parsed=parsed):
@@ -3464,7 +4379,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         cache_root = resolve_runtime_path(PAGE_CACHE_ROOT)
         cache_dir = cache_root / str(book_id)
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_prefix = cache_dir / f"p_{int(page)}"
+        cache_prefix = cache_dir / f"p_{int(page)}_d{int(PAGE_IMAGE_DPI)}_q{int(PAGE_IMAGE_JPEG_QUALITY)}"
         return Path(f"{cache_prefix}.jpg")
 
     def _ensure_book_page_image_path(self, *, book_id: str, page: int) -> Path | None:
@@ -3480,16 +4395,16 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 subprocess.run(
                     [
                         "pdftoppm",
+                        "-r",
+                        str(max(72, int(PAGE_IMAGE_DPI))),
                         "-jpeg",
+                        "-jpegopt",
+                        f"quality={max(50, min(100, int(PAGE_IMAGE_JPEG_QUALITY)))}",
                         "-f",
                         str(page_num),
                         "-l",
                         str(page_num),
                         "-singlefile",
-                        "-scale-to-x",
-                        "1300",
-                        "-scale-to-y",
-                        "-1",
                         str(pdf_path),
                         str(cache_prefix),
                     ],
@@ -3689,7 +4604,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "image/jpeg")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("Cache-Control", f"public, max-age={int(PAGE_IMAGE_HTTP_MAX_AGE_SEC)}")
         self.end_headers()
         self.wfile.write(body)
 
@@ -4022,6 +4937,8 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         user_id = str(params.get("user_id", [""])[0] or "").strip()
         if not user_id:
+            user_id = str(self._auth_user_id(parsed=parsed) or "").strip()
+        if not user_id:
             return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "user_id is required")
         try:
             user_id = ensure_uuid(user_id)
@@ -4061,16 +4978,35 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if not self._authorized(parsed=parsed):
             return error_response(self, HTTPStatus.UNAUTHORIZED, "INVALID_AUTH", "Unauthorized")
         cfg = load_llm_toc_config()
+        profiles = []
+        for row in list(cfg.get("profiles") or []):
+            if not isinstance(row, dict):
+                continue
+            profiles.append(
+                {
+                    "name": str(row.get("name") or ""),
+                    "provider": normalize_llm_provider(row.get("provider")),
+                    "base_url": str(row.get("base_url") or ""),
+                    "model": str(row.get("model") or ""),
+                    "api_key": str(row.get("api_key") or ""),
+                    "has_api_key": bool(str(row.get("api_key") or "").strip()),
+                    "prompt": str(row.get("prompt") or DEFAULT_LLM_TOC_PROMPT),
+                }
+            )
         return json_response(
             self,
             HTTPStatus.OK,
             {
                 "status": "ok",
+                "provider": normalize_llm_provider(cfg.get("provider")),
+                "profile_name": str(cfg.get("profile_name") or ""),
+                "active_profile": str(cfg.get("active_profile") or cfg.get("profile_name") or ""),
                 "base_url": str(cfg.get("base_url") or ""),
                 "model": str(cfg.get("model") or ""),
                 "api_key": str(cfg.get("api_key") or ""),
                 "has_api_key": bool(str(cfg.get("api_key") or "").strip()),
                 "prompt": str(cfg.get("prompt") or DEFAULT_LLM_TOC_PROMPT),
+                "profiles": profiles,
                 "updated_at": str(cfg.get("updated_at") or ""),
                 "config_file": str(resolve_runtime_path(LLM_TOC_CONFIG_PATH)),
             },
@@ -4083,34 +5019,89 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if payload is None:
             return
         current = load_llm_toc_config()
-
-        base_url = str(payload.get("base_url") if "base_url" in payload else current.get("base_url") or "").strip()
-        model = str(payload.get("model") if "model" in payload else current.get("model") or "").strip()
-        prompt = str(payload.get("prompt") if "prompt" in payload else current.get("prompt") or DEFAULT_LLM_TOC_PROMPT).strip()
-        remember_api_key = safe_bool(payload.get("remember_api_key"), True)
-
-        if "api_key" in payload:
-            api_key = str(payload.get("api_key") or "").strip()
-        else:
-            api_key = str(current.get("api_key") or "").strip()
-
-        saved = save_llm_toc_config(
-            base_url=base_url,
-            model=model,
-            api_key=api_key,
-            prompt=prompt,
-            remember_api_key=remember_api_key,
+        profile_name = sanitize_llm_profile_name(
+            payload.get("profile_name") or payload.get("name") or current.get("active_profile") or "default",
+            default="default",
         )
+        delete_profile = safe_bool(payload.get("delete_profile"), False)
+
+        if delete_profile:
+            requested_name = str(payload.get("profile_name") or payload.get("name") or "").strip()
+            if not requested_name:
+                return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_PAYLOAD", "profile_name is required for delete_profile")
+            saved = delete_llm_toc_profile(profile_name=profile_name)
+        else:
+            target_profile = _find_llm_profile(list(current.get("profiles") or []), profile_name) or {}
+
+            provider = normalize_llm_provider(
+                payload.get("provider")
+                if "provider" in payload
+                else target_profile.get("provider") or current.get("provider")
+            )
+            base_url = str(
+                payload.get("base_url")
+                if "base_url" in payload
+                else target_profile.get("base_url") or current.get("base_url") or ""
+            ).strip()
+            model = str(
+                payload.get("model")
+                if "model" in payload
+                else target_profile.get("model") or current.get("model") or ""
+            ).strip()
+            prompt = str(
+                payload.get("prompt")
+                if "prompt" in payload
+                else target_profile.get("prompt") or current.get("prompt") or DEFAULT_LLM_TOC_PROMPT
+            ).strip()
+            remember_api_key = safe_bool(payload.get("remember_api_key"), True)
+            set_active = safe_bool(payload.get("set_active"), True)
+
+            if "api_key" in payload:
+                api_key = str(payload.get("api_key") or "").strip()
+            else:
+                api_key = str(target_profile.get("api_key") or current.get("api_key") or "").strip()
+
+            saved = save_llm_toc_config(
+                provider=provider,
+                profile_name=profile_name,
+                base_url=base_url,
+                model=model,
+                api_key=api_key,
+                prompt=prompt,
+                remember_api_key=remember_api_key,
+                set_active=set_active,
+            )
+        saved_profiles = []
+        for row in list(saved.get("profiles") or []):
+            if not isinstance(row, dict):
+                continue
+            saved_profiles.append(
+                {
+                    "name": str(row.get("name") or ""),
+                    "provider": normalize_llm_provider(row.get("provider")),
+                    "base_url": str(row.get("base_url") or ""),
+                    "model": str(row.get("model") or ""),
+                    "api_key": str(row.get("api_key") or ""),
+                    "has_api_key": bool(str(row.get("api_key") or "").strip()),
+                    "prompt": str(row.get("prompt") or DEFAULT_LLM_TOC_PROMPT),
+                }
+            )
         return json_response(
             self,
             HTTPStatus.OK,
             {
                 "status": "ok",
+                "delete_profile": bool(delete_profile),
+                "deleted_profile_name": profile_name if delete_profile else "",
+                "provider": normalize_llm_provider(saved.get("provider")),
+                "profile_name": str(saved.get("profile_name") or ""),
+                "active_profile": str(saved.get("active_profile") or saved.get("profile_name") or ""),
                 "base_url": str(saved.get("base_url") or ""),
                 "model": str(saved.get("model") or ""),
                 "api_key": str(saved.get("api_key") or ""),
                 "has_api_key": bool(str(saved.get("api_key") or "").strip()),
                 "prompt": str(saved.get("prompt") or DEFAULT_LLM_TOC_PROMPT),
+                "profiles": saved_profiles,
                 "updated_at": str(saved.get("updated_at") or ""),
                 "config_file": str(resolve_runtime_path(LLM_TOC_CONFIG_PATH)),
             },
@@ -4119,29 +5110,57 @@ class BookFlowHandler(BaseHTTPRequestHandler):
     def _resolve_llm_request_config(self, payload: dict[str, Any]) -> dict[str, Any]:
         saved_cfg = load_llm_toc_config()
         llm_cfg = payload.get("llm") if isinstance(payload.get("llm"), dict) else {}
+        request_profile_name = sanitize_llm_profile_name(
+            llm_cfg.get("profile_name")
+            or payload.get("profile_name")
+            or payload.get("active_profile")
+            or "",
+            default="",
+        )
+        request_profile = _find_llm_profile(list(saved_cfg.get("profiles") or []), request_profile_name) if request_profile_name else None
+        active_profile = _find_llm_profile(list(saved_cfg.get("profiles") or []), saved_cfg.get("active_profile") or saved_cfg.get("profile_name"))
+        selected_profile = request_profile or active_profile or {}
+        provider = normalize_llm_provider(
+            llm_cfg.get("provider")
+            or payload.get("provider")
+            or selected_profile.get("provider")
+            or saved_cfg.get("provider")
+        )
         base_url = str(
             llm_cfg.get("base_url")
             or payload.get("base_url")
+            or selected_profile.get("base_url")
             or saved_cfg.get("base_url")
             or ""
         ).strip()
         api_key = str(
             llm_cfg.get("api_key")
             or payload.get("api_key")
+            or selected_profile.get("api_key")
             or saved_cfg.get("api_key")
             or ""
         ).strip()
         model = str(
             llm_cfg.get("model")
             or payload.get("model")
+            or selected_profile.get("model")
             or saved_cfg.get("model")
             or ""
         ).strip()
-        prompt = str(payload.get("prompt") or saved_cfg.get("prompt") or DEFAULT_LLM_TOC_PROMPT).strip()
+        prompt = str(
+            payload.get("prompt")
+            or selected_profile.get("prompt")
+            or saved_cfg.get("prompt")
+            or DEFAULT_LLM_TOC_PROMPT
+        ).strip()
+        if not base_url:
+            base_url = _default_base_url_for_provider(provider)
         timeout_sec = safe_int(payload.get("timeout_sec"), 90) or 90
         remember_config = safe_bool(payload.get("remember_config"), True)
         remember_api_key = safe_bool(payload.get("remember_api_key"), True)
         return {
+            "provider": provider,
+            "profile_name": request_profile_name or str(saved_cfg.get("active_profile") or saved_cfg.get("profile_name") or ""),
             "base_url": base_url,
             "api_key": api_key,
             "model": model,
@@ -4154,6 +5173,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
     def _run_llm_validation(
         self,
         *,
+        provider: str,
         base_url: str,
         api_key: str,
         model: str,
@@ -4166,13 +5186,15 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         checks: list[dict[str, Any]] = []
         valid = True
         resolved_url = ""
+        provider_norm = normalize_llm_provider(provider)
 
         try:
-            resolved_url = build_llm_chat_completions_url(base_url)
+            resolved_url = build_llm_chat_completions_url(base_url, provider=provider_norm)
             checks.append({"name": "base_url", "status": "ok", "detail": resolved_url})
         except Exception as exc:
             valid = False
             checks.append({"name": "base_url", "status": "failed", "detail": str(exc)})
+        checks.append({"name": "provider", "status": "ok", "detail": provider_norm})
 
         if not str(model or "").strip():
             valid = False
@@ -4190,6 +5212,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if valid:
             try:
                 probe = call_llm_text_probe(
+                    provider=provider_norm,
                     base_url=base_url,
                     api_key=api_key,
                     model=model,
@@ -4245,6 +5268,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                     vision = call_llm_toc_extract(
                         image_data_url=image_data_url,
                         prompt=str(prompt or "请只回复OK"),
+                        provider=provider_norm,
                         base_url=base_url,
                         api_key=api_key,
                         model=model,
@@ -4294,16 +5318,20 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if cfg.get("remember_config"):
             try:
                 save_llm_toc_config(
+                    provider=str(cfg.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
+                    profile_name=str(cfg.get("profile_name") or "default"),
                     base_url=str(cfg.get("base_url") or ""),
                     model=str(cfg.get("model") or ""),
                     api_key=str(cfg.get("api_key") or ""),
                     prompt=str(cfg.get("prompt") or DEFAULT_LLM_TOC_PROMPT),
                     remember_api_key=bool(cfg.get("remember_api_key")),
+                    set_active=True,
                 )
             except Exception:
                 pass
 
         validation = self._run_llm_validation(
+            provider=str(cfg.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
             base_url=str(cfg.get("base_url") or ""),
             api_key=str(cfg.get("api_key") or ""),
             model=str(cfg.get("model") or ""),
@@ -4320,6 +5348,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 "status": "ok" if validation.get("valid") else "invalid",
                 "validation": validation,
                 "llm": {
+                    "provider": normalize_llm_provider(cfg.get("provider")),
                     "base_url": str(cfg.get("base_url") or ""),
                     "resolved_url": str(validation.get("resolved_url") or ""),
                     "model": str(cfg.get("model") or ""),
@@ -4441,6 +5470,8 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_QUERY", "book_id is required")
 
         user_id = str(params.get("user_id", [""])[0] or "").strip() or None
+        if not user_id:
+            user_id = self._auth_user_id(parsed=parsed)
         if user_id:
             try:
                 user_id = ensure_uuid(user_id)
@@ -5035,6 +6066,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             return error_response(self, HTTPStatus.BAD_REQUEST, "INVALID_PAYLOAD", str(exc))
 
         cfg = self._resolve_llm_request_config(payload)
+        provider = normalize_llm_provider(cfg.get("provider"))
         base_url = str(cfg.get("base_url") or "").strip()
         api_key = str(cfg.get("api_key") or "").strip()
         model = str(cfg.get("model") or "").strip()
@@ -5056,6 +6088,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             book_id = str(payload.get("book_id") or "").strip()
             page = safe_int(payload.get("page"), None)
             validation = self._run_llm_validation(
+                provider=provider,
                 base_url=base_url,
                 api_key=api_key,
                 model=model,
@@ -5083,11 +6116,14 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if remember_config:
             try:
                 save_llm_toc_config(
+                    provider=provider,
+                    profile_name=str(cfg.get("profile_name") or "default"),
                     base_url=base_url,
                     model=model,
                     api_key=api_key,
                     prompt=prompt,
                     remember_api_key=remember_api_key,
+                    set_active=True,
                 )
             except Exception:
                 pass
@@ -5096,6 +6132,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             llm_result = call_llm_toc_extract(
                 image_data_url=image_data_url,
                 prompt=prompt,
+                provider=provider,
                 base_url=base_url,
                 api_key=api_key,
                 model=model,
@@ -5127,8 +6164,9 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                     "toc_text": toc_text,
                     "preview": preview,
                     "llm": {
+                        "provider": provider,
                         "model": model,
-                        "base_url": build_llm_chat_completions_url(base_url),
+                        "base_url": build_llm_chat_completions_url(base_url, provider=provider),
                     },
                     "raw_output_excerpt": str(llm_result.get("raw_output_text") or "")[:2000],
                 }
@@ -5142,8 +6180,9 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             {
                 "status": "ok",
                 "engine": "llm",
+                "provider": provider,
                 "model": model,
-                "base_url": build_llm_chat_completions_url(base_url),
+                "base_url": build_llm_chat_completions_url(base_url, provider=provider),
                 "line_count": len(lines),
                 "toc_text": toc_text,
                 "lines": lines[:500],
@@ -5218,6 +6257,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             pages = list(range(page_start, page_end + 1))
 
         cfg = self._resolve_llm_request_config(payload)
+        provider = normalize_llm_provider(cfg.get("provider"))
         base_url = str(cfg.get("base_url") or "").strip()
         api_key = str(cfg.get("api_key") or "").strip()
         model = str(cfg.get("model") or "").strip()
@@ -5252,6 +6292,8 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             "total_pages": safe_int(payload.get("total_pages"), None),
             "page_offset": safe_int(payload.get("page_offset"), 0) or 0,
             "validate_first": safe_bool(payload.get("validate_first"), True),
+            "provider": provider,
+            "profile_name": str(cfg.get("profile_name") or ""),
             "base_url": base_url,
             "api_key": api_key,
             "model": model,
@@ -5277,6 +6319,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         total_pages = safe_int(request_payload.get("total_pages"), None)
         page_offset = int(request_payload.get("page_offset") or 0)
         prompt = str(request_payload.get("prompt") or DEFAULT_LLM_TOC_PROMPT)
+        provider = normalize_llm_provider(request_payload.get("provider"))
         base_url = str(request_payload.get("base_url") or "")
         api_key = str(request_payload.get("api_key") or "")
         model = str(request_payload.get("model") or "")
@@ -5285,7 +6328,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         retry_backoff_ms = max(0, int(request_payload.get("retry_backoff_ms") or 0))
 
         try:
-            llm_base_url = build_llm_chat_completions_url(base_url)
+            llm_base_url = build_llm_chat_completions_url(base_url, provider=provider)
         except Exception:
             llm_base_url = str(base_url or "")
 
@@ -5351,6 +6394,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                     llm_result = call_llm_toc_extract(
                         image_data_url=image_data_url,
                         prompt=prompt,
+                        provider=provider,
                         base_url=base_url,
                         api_key=api_key,
                         model=model,
@@ -5468,6 +6512,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                     "page_results": page_results,
                     "failure_breakdown": failure_breakdown,
                     "llm": {
+                        "provider": provider,
                         "model": model,
                         "base_url": llm_base_url,
                     },
@@ -5479,6 +6524,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         return {
             "status": "partial" if failed_pages > 0 else "ok",
             "engine": "llm",
+            "provider": provider,
             "model": model,
             "base_url": llm_base_url,
             "book_id": book_id,
@@ -5585,6 +6631,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if bool(request_payload.get("validate_first")):
             probe_page = int((request_payload.get("pages") or [request_payload.get("page_start")])[0] or request_payload.get("page_start") or 1)
             validation = self._run_llm_validation(
+                provider=str(request_payload.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
                 base_url=str(request_payload.get("base_url") or ""),
                 api_key=str(request_payload.get("api_key") or ""),
                 model=str(request_payload.get("model") or ""),
@@ -5612,11 +6659,14 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if bool(request_payload.get("remember_config")):
             try:
                 save_llm_toc_config(
+                    provider=str(request_payload.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
+                    profile_name=str(request_payload.get("profile_name") or "default"),
                     base_url=str(request_payload.get("base_url") or ""),
                     model=str(request_payload.get("model") or ""),
                     api_key=str(request_payload.get("api_key") or ""),
                     prompt=str(request_payload.get("prompt") or DEFAULT_LLM_TOC_PROMPT),
                     remember_api_key=bool(request_payload.get("remember_api_key")),
+                    set_active=True,
                 )
             except Exception:
                 pass
@@ -5630,6 +6680,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 "processed_pages": processed_pages,
                 "page_count": len(processed_pages),
                 "model": str(request_payload.get("model") or ""),
+                "provider": str(request_payload.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
                 "retry_config": {
                     "max_retries_per_page": int(request_payload.get("max_retries_per_page") or 0),
                     "retry_backoff_ms": int(request_payload.get("retry_backoff_ms") or 0),
@@ -5677,6 +6728,8 @@ class BookFlowHandler(BaseHTTPRequestHandler):
                 "page_end": request_payload.get("page_end"),
                 "page_count": len(processed_pages),
                 "processed_pages": processed_pages,
+                "provider": str(request_payload.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
+                "profile_name": str(request_payload.get("profile_name") or ""),
                 "retry_config": {
                     "max_retries_per_page": int(request_payload.get("max_retries_per_page") or 0),
                     "retry_backoff_ms": int(request_payload.get("retry_backoff_ms") or 0),
@@ -5745,6 +6798,7 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if bool(request_payload.get("validate_first")):
             probe_page = int((request_payload.get("pages") or [request_payload.get("page_start")])[0] or request_payload.get("page_start") or 1)
             validation = self._run_llm_validation(
+                provider=str(request_payload.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
                 base_url=str(request_payload.get("base_url") or ""),
                 api_key=str(request_payload.get("api_key") or ""),
                 model=str(request_payload.get("model") or ""),
@@ -5772,11 +6826,14 @@ class BookFlowHandler(BaseHTTPRequestHandler):
         if bool(request_payload.get("remember_config")):
             try:
                 save_llm_toc_config(
+                    provider=str(request_payload.get("provider") or LLM_PROVIDER_OPENAI_COMPAT),
+                    profile_name=str(request_payload.get("profile_name") or "default"),
                     base_url=str(request_payload.get("base_url") or ""),
                     model=str(request_payload.get("model") or ""),
                     api_key=str(request_payload.get("api_key") or ""),
                     prompt=str(request_payload.get("prompt") or DEFAULT_LLM_TOC_PROMPT),
                     remember_api_key=bool(request_payload.get("remember_api_key")),
+                    set_active=True,
                 )
             except Exception:
                 pass
@@ -5868,6 +6925,8 @@ class BookFlowHandler(BaseHTTPRequestHandler):
             rel = "book.html"
         elif path == "/app/toc":
             rel = "toc.html"
+        elif path in {"/app/login", "/app/login/"}:
+            rel = "login.html"
         elif path.startswith("/app/"):
             rel = path[len("/app/") :]
         else:

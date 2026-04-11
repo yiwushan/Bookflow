@@ -7,21 +7,24 @@
   <link rel="stylesheet" href="/app/styles.css">
 </head>
 <body>
-  <main class="page">
-    <section class="panel topbar">
+  <main class="page feed-page">
+    <section class="panel topbar feed-console">
       <div class="row spread">
         <div>
-          <h1>BookFlow 信息流 MVP</h1>
-          <p>双列卡片流：上封面，下标题。点击卡片进入章节原文 PDF 阅读。</p>
+          <span class="eyebrow">BookFlow v1-dev</span>
+          <h1>BookFlow 阅读信息流</h1>
+          <p>双列封面流：点击卡片进入章节原文 PDF 阅读，互动计数会局部实时刷新。</p>
         </div>
         <div class="row">
           <a class="btn subtle link" href="/app/toc">目录标注台</a>
+          <button id="logoutBtn" class="btn subtle" type="button">退出登录</button>
         </div>
       </div>
 
       <div class="row">
-        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
-        <input id="userInput" class="input" placeholder="user_id (可选)" style="min-width:260px;">
+        <input id="tokenInput" type="hidden">
+        <input id="userInput" type="hidden">
+        <span id="currentUserLabel" class="hint"></span>
         <label class="hint"><input id="memorySwitch" type="checkbox"> 混入回忆卡</label>
         <button id="refreshBtn" class="btn primary" type="button">刷新</button>
       </div>
@@ -57,6 +60,11 @@
   <script>
     (() => {
       const App = window.BookFlowApp;
+      if (typeof App.isLoggedIn === "function" && !App.isLoggedIn()) {
+        const next = encodeURIComponent(`${window.location.pathname}${window.location.search || ""}`);
+        window.location.href = `/app/login.html?next=${next}`;
+        return;
+      }
       const FEED_STATE_KEY = "bookflow.feed.state.v1";
       const state = {
         token: App.getStoredToken(),
@@ -71,9 +79,11 @@
         loading: false,
       };
       let saveRaf = 0;
+      const appliedBumpIds = new Set();
 
       const tokenInput = document.getElementById("tokenInput");
       const userInput = document.getElementById("userInput");
+      const currentUserLabel = document.getElementById("currentUserLabel");
       const memorySwitch = document.getElementById("memorySwitch");
       const exportDirInput = document.getElementById("exportDirInput");
       const exportBtn = document.getElementById("exportBtn");
@@ -82,6 +92,7 @@
       const importRecursiveSwitch = document.getElementById("importRecursiveSwitch");
       const importStorageSelect = document.getElementById("importStorageSelect");
       const importBtn = document.getElementById("importBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
       const importProgressEl = document.getElementById("importProgress");
       const refreshBtn = document.getElementById("refreshBtn");
       const moreBtn = document.getElementById("moreBtn");
@@ -90,10 +101,19 @@
 
       tokenInput.value = state.token;
       userInput.value = state.userId || "";
+      if (currentUserLabel instanceof HTMLElement) {
+        const username = typeof App.getStoredUsername === "function" ? App.getStoredUsername() : "";
+        currentUserLabel.textContent = username
+          ? `当前用户：${username}`
+          : (state.userId ? `当前用户：${state.userId.slice(0, 8)}` : "未登录");
+      }
       exportDirInput.value = state.exportDir || "data/users/export";
       importDirInput.value = state.importDir || "data/books/inbox";
       importRecursiveSwitch.checked = !!state.importRecursive;
       importStorageSelect.value = state.importStorage || "on_demand";
+      if (typeof App.showFlashToast === "function") {
+        App.showFlashToast();
+      }
 
       function setNotice(text, isError = false) {
         noticeEl.className = isError ? "notice error" : "notice";
@@ -214,7 +234,8 @@
         const params = new URLSearchParams();
         params.set("book_id", item.book_id || "");
         params.set("chunk_id", item.chunk_id || "");
-        params.set("token", state.token || "local-dev-token");
+        params.set("token", state.token || App.getStoredToken() || "");
+        params.set("device_id", App.getDeviceId());
         return `/v1/chunk_cover?${params.toString()}`;
       }
 
@@ -224,6 +245,8 @@
           const title = App.escapeHtml(item.title || "(无标题)");
           const section = App.escapeHtml(item.section_id || "-");
           const bookTitle = App.escapeHtml(item.book_title || "未知书籍");
+          const bookId = App.escapeHtml(item.book_id || "");
+          const chunkId = App.escapeHtml(item.chunk_id || "");
           const readHref = readerUrl(item);
           const bookHref = bookUrl(item);
           const coverHref = App.escapeHtml(coverUrl(item));
@@ -232,7 +255,7 @@
           const completeCount = Number(item.complete_count || 0);
 
           return `
-            <article class="post-card">
+            <article class="post-card" data-book-id="${bookId}" data-chunk-id="${chunkId}">
               <a class="post-cover" href="${readHref}">
                 <span class="post-cover-frame">
                   <img class="post-cover-image" src="${coverHref}" loading="lazy" alt="pdf-cover">
@@ -246,14 +269,104 @@
                   <span>${section}</span>
                 </div>
                 <div class="post-stats">
-                  <span>点赞 ${likeCount}</span>
-                  <span>评论 ${commentCount}</span>
-                  <span>完成 ${completeCount}</span>
+                  <span>点赞 <strong data-stat="like_count">${likeCount}</strong></span>
+                  <span>评论 <strong data-stat="comment_count">${commentCount}</strong></span>
+                  <span>完成 <strong data-stat="complete_count">${completeCount}</strong></span>
                 </div>
               </div>
             </article>
           `;
         }).join("");
+      }
+
+      function normalizeCount(value) {
+        const num = Number(value || 0);
+        if (!Number.isFinite(num)) {
+          return 0;
+        }
+        return Math.max(0, Math.trunc(num));
+      }
+
+      function rememberBumpId(bumpId) {
+        const id = String(bumpId || "").trim();
+        if (!id) {
+          return;
+        }
+        appliedBumpIds.add(id);
+        if (appliedBumpIds.size <= 480) {
+          return;
+        }
+        const first = appliedBumpIds.values().next();
+        if (!first.done) {
+          appliedBumpIds.delete(first.value);
+        }
+      }
+
+      function updateCardStatsDom(item) {
+        const bookId = String(item?.book_id || "");
+        const chunkId = String(item?.chunk_id || "");
+        if (!bookId || !chunkId) {
+          return;
+        }
+        const cards = feedGrid.querySelectorAll(".post-card");
+        cards.forEach((card) => {
+          if (!(card instanceof HTMLElement)) {
+            return;
+          }
+          if (String(card.dataset.bookId || "") !== bookId || String(card.dataset.chunkId || "") !== chunkId) {
+            return;
+          }
+          ["like_count", "comment_count", "complete_count"].forEach((field) => {
+            const val = normalizeCount(item[field]);
+            const statEl = card.querySelector(`strong[data-stat='${field}']`);
+            if (statEl) {
+              statEl.textContent = String(val);
+            }
+          });
+        });
+      }
+
+      function applyFeedDelta(bump) {
+        const event = bump && typeof bump === "object" ? bump : {};
+        const bumpId = String(event.id || "").trim();
+        if (bumpId && appliedBumpIds.has(bumpId)) {
+          return;
+        }
+        if (bumpId) {
+          rememberBumpId(bumpId);
+        }
+        const bookId = String(event.bookId || "").trim();
+        const chunkId = String(event.chunkId || "").trim();
+        const deltas = event.deltas && typeof event.deltas === "object" ? event.deltas : {};
+        if (!bookId || !chunkId) {
+          return;
+        }
+        let changed = false;
+        for (const item of state.items) {
+          if (String(item?.book_id || "") !== bookId || String(item?.chunk_id || "") !== chunkId) {
+            continue;
+          }
+          ["like_count", "comment_count", "complete_count"].forEach((field) => {
+            const delta = Number(deltas[field] || 0);
+            if (!Number.isFinite(delta) || delta === 0) {
+              return;
+            }
+            const curr = normalizeCount(item[field]);
+            const next = Math.max(0, curr + Math.trunc(delta));
+            if (next === curr) {
+              return;
+            }
+            item[field] = next;
+            changed = true;
+          });
+          if (changed) {
+            updateCardStatsDom(item);
+          }
+          break;
+        }
+        if (changed) {
+          saveFeedState();
+        }
       }
 
       async function loadFeed(reset = false) {
@@ -502,6 +615,14 @@
         userInput.value = state.userId || "";
         void importLibraryFromWeb();
       });
+      if (logoutBtn instanceof HTMLButtonElement) {
+        logoutBtn.addEventListener("click", async () => {
+          if (typeof App.authLogout === "function") {
+            await App.authLogout();
+          }
+          window.location.href = "/app/login.html";
+        });
+      }
 
       feedGrid.addEventListener("click", (evt) => {
         const target = evt.target;
@@ -524,7 +645,16 @@
       window.addEventListener("beforeunload", () => {
         saveFeedState();
       });
+      const unsubscribeInteractionDelta = App.subscribeInteractionDelta((event) => {
+        applyFeedDelta(event);
+      });
+      window.addEventListener("beforeunload", () => {
+        unsubscribeInteractionDelta();
+      });
       window.addEventListener("pageshow", (evt) => {
+        if (typeof App.showFlashToast === "function") {
+          App.showFlashToast();
+        }
         const navEntry = (window.performance && typeof window.performance.getEntriesByType === "function")
           ? window.performance.getEntriesByType("navigation")[0]
           : null;
@@ -532,7 +662,10 @@
         if (!isBackForward) {
           return;
         }
-        restoreFeedState({ keepScroll: true, silent: true });
+        const restored = restoreFeedState({ keepScroll: true, silent: true });
+        if (!restored) {
+          void loadFeed(true);
+        }
       });
 
       if (!restoreFeedState({ keepScroll: false })) {

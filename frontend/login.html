@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BookFlow 登录</title>
+  <link rel="stylesheet" href="/app/styles.css">
+</head>
+<body>
+  <main class="page stack" style="max-width:560px;">
+    <section class="panel topbar">
+      <div>
+        <h1>登录 BookFlow</h1>
+        <p>单用户模式：登录后进入阅读工作台。</p>
+      </div>
+      <div class="row">
+        <input id="usernameInput" class="input" placeholder="用户名" autocomplete="username" value="admin" style="min-width:220px;">
+        <input id="passwordInput" class="input" type="password" placeholder="密码" autocomplete="current-password" style="min-width:220px;">
+      </div>
+      <div class="row">
+        <button id="loginBtn" class="btn primary" type="button">登录</button>
+      </div>
+      <div id="notice" class="notice">请输入用户名和密码。</div>
+    </section>
+  </main>
+
+  <script src="/app/app.js"></script>
+  <script>
+    (() => {
+      const App = window.BookFlowApp;
+      const query = App.parseQuery();
+      const usernameInput = document.getElementById("usernameInput");
+      const passwordInput = document.getElementById("passwordInput");
+      const loginBtn = document.getElementById("loginBtn");
+      const noticeEl = document.getElementById("notice");
+
+      function setNotice(text, isError = false) {
+        noticeEl.className = isError ? "notice error" : "notice";
+        noticeEl.textContent = text;
+      }
+
+      function sanitizeNext(raw) {
+        const text = String(raw || "").trim();
+        if (!text || !text.startsWith("/")) {
+          return "/app";
+        }
+        if (text.startsWith("//")) {
+          return "/app";
+        }
+        if (!text.startsWith("/app")) {
+          return "/app";
+        }
+        if (text.startsWith("/app/login")) {
+          return "/app";
+        }
+        return text;
+      }
+
+      const nextPath = sanitizeNext(query.next || "/app");
+      if (App.isLoggedIn()) {
+        window.location.href = nextPath;
+        return;
+      }
+
+      async function submitLogin() {
+        const username = String(usernameInput.value || "").trim();
+        const password = String(passwordInput.value || "");
+        if (!username || !password) {
+          setNotice("请填写用户名和密码。", true);
+          return;
+        }
+        loginBtn.disabled = true;
+        try {
+          await App.authLogin(username, password);
+          setNotice("登录成功，正在跳转...", false);
+          if (typeof App.showToast === "function") {
+            App.showToast("登录成功", { type: "success", duration: 1200 });
+          }
+          window.setTimeout(() => {
+            window.location.href = nextPath;
+          }, 200);
+        } catch (err) {
+          const msg = err?.payload?.error?.message || err.message || "登录失败";
+          setNotice(`登录失败：${msg}`, true);
+        } finally {
+          loginBtn.disabled = false;
+        }
+      }
+
+      loginBtn.addEventListener("click", () => {
+        void submitLogin();
+      });
+      passwordInput.addEventListener("keydown", (evt) => {
+        if (!(evt instanceof KeyboardEvent)) {
+          return;
+        }
+        if (evt.key !== "Enter") {
+          return;
+        }
+        evt.preventDefault();
+        void submitLogin();
+      });
+    })();
+  </script>
+</body>
+</html>

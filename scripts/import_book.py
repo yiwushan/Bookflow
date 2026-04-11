@@ -95,6 +95,168 @@ def compute_file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _normalize_review_status(raw: Any) -> str:
+    status = str(raw or "").strip().lower()
+    if status in {"approved", "rejected", "pending_review"}:
+        return status
+    return "pending_review"
+
+
+def choose_import_review_state(
+    *,
+    existing_book: dict[str, Any] | None,
+    fingerprint_book: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    Review-state policy (v1):
+    1) Prefer same book_id history.
+    2) Fall back to same fingerprint history.
+    3) Approved stays approved across re-imports.
+    4) Rejected requires re-review (turn into pending_review).
+    """
+    if isinstance(existing_book, dict):
+        source = "existing_book_id"
+        row = existing_book
+    elif isinstance(fingerprint_book, dict):
+        source = "fingerprint_match"
+        row = fingerprint_book
+    else:
+        return {
+            "toc_review_status": "pending_review",
+            "review_required": True,
+            "toc_reviewed_at": "",
+            "review_state_origin": "default_pending_new_book",
+            "inherited_from_book_id": "",
+            "inherited_from_fingerprint": "",
+        }
+
+    status = _normalize_review_status(row.get("toc_review_status"))
+    reviewed_at = str(row.get("toc_reviewed_at") or "").strip()
+    inherited_book_id = str(row.get("book_id") or "").strip()
+    inherited_fp = str(row.get("book_fingerprint") or "").strip().lower()
+
+    if status == "approved":
+        return {
+            "toc_review_status": "approved",
+            "review_required": False,
+            "toc_reviewed_at": reviewed_at,
+            "review_state_origin": f"{source}_approved_reused",
+            "inherited_from_book_id": inherited_book_id,
+            "inherited_from_fingerprint": inherited_fp,
+        }
+
+    if status == "rejected":
+        return {
+            "toc_review_status": "pending_review",
+            "review_required": True,
+            "toc_reviewed_at": "",
+            "review_state_origin": f"{source}_rejected_requires_rereview",
+            "inherited_from_book_id": inherited_book_id,
+            "inherited_from_fingerprint": inherited_fp,
+        }
+
+    return {
+        "toc_review_status": "pending_review",
+        "review_required": True,
+        "toc_reviewed_at": "",
+        "review_state_origin": f"{source}_pending_review_kept",
+        "inherited_from_book_id": inherited_book_id,
+        "inherited_from_fingerprint": inherited_fp,
+    }
+
+
+def resolve_import_review_state(
+    *,
+    dsn: str | None,
+    book_id: str,
+    source_fingerprint: str,
+) -> dict[str, Any]:
+    fallback = choose_import_review_state(existing_book=None, fingerprint_book=None)
+    if not dsn:
+        fallback["review_state_origin"] = "default_pending_no_database"
+        return fallback
+    try:
+        uid = str(uuid.UUID(str(book_id)))
+    except Exception:
+        fallback["review_state_origin"] = "default_pending_invalid_book_id"
+        return fallback
+
+    fp = str(source_fingerprint or "").strip().lower()
+    existing_book: dict[str, Any] | None = None
+    fingerprint_book: dict[str, Any] | None = None
+
+    try:
+        with psycopg.connect(dsn, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                      id::text AS book_id,
+                      source_path,
+                      LOWER(NULLIF(metadata->>'book_fingerprint', '')) AS book_fingerprint,
+                      COALESCE(NULLIF(metadata->>'toc_review_status', ''), 'pending_review') AS toc_review_status,
+                      NULLIF(metadata->>'toc_reviewed_at', '') AS toc_reviewed_at,
+                      metadata->>'review_required' AS review_required
+                    FROM books
+                    WHERE id = %s::uuid
+                    LIMIT 1
+                    """,
+                    (uid,),
+                )
+                row = cur.fetchone()
+                if row is not None:
+                    existing_book = {
+                        "book_id": row[0],
+                        "source_path": row[1],
+                        "book_fingerprint": row[2],
+                        "toc_review_status": row[3],
+                        "toc_reviewed_at": row[4],
+                        "review_required": row[5],
+                    }
+                if fp:
+                    cur.execute(
+                        """
+                        SELECT
+                          id::text AS book_id,
+                          source_path,
+                          LOWER(NULLIF(metadata->>'book_fingerprint', '')) AS book_fingerprint,
+                          COALESCE(NULLIF(metadata->>'toc_review_status', ''), 'pending_review') AS toc_review_status,
+                          NULLIF(metadata->>'toc_reviewed_at', '') AS toc_reviewed_at,
+                          metadata->>'review_required' AS review_required
+                        FROM books
+                        WHERE LOWER(NULLIF(metadata->>'book_fingerprint', '')) = %s
+                          AND id <> %s::uuid
+                        ORDER BY
+                          CASE COALESCE(NULLIF(metadata->>'toc_review_status', ''), 'pending_review')
+                            WHEN 'approved' THEN 0
+                            WHEN 'pending_review' THEN 1
+                            WHEN 'rejected' THEN 2
+                            ELSE 3
+                          END,
+                          created_at DESC,
+                          updated_at DESC,
+                          id DESC
+                        LIMIT 1
+                        """,
+                        (fp, uid),
+                    )
+                    row_fp = cur.fetchone()
+                    if row_fp is not None:
+                        fingerprint_book = {
+                            "book_id": row_fp[0],
+                            "source_path": row_fp[1],
+                            "book_fingerprint": row_fp[2],
+                            "toc_review_status": row_fp[3],
+                            "toc_reviewed_at": row_fp[4],
+                            "review_required": row_fp[5],
+                        }
+    except Exception:
+        fallback["review_state_origin"] = "default_pending_lookup_failed"
+        return fallback
+
+    return choose_import_review_state(existing_book=existing_book, fingerprint_book=fingerprint_book)
+
+
 def read_toc_store() -> dict[str, Any]:
     if not MANUAL_TOC_STORE_PATH.exists():
         return {
@@ -806,12 +968,35 @@ def import_to_db(
     source_format: str,
     source_path: str,
     chunk_result: dict[str, Any],
+    book_fingerprint: str = "",
+    toc_review_status: str = "pending_review",
+    review_required: bool = True,
+    toc_reviewed_at: str = "",
+    review_state_origin: str = "default_pending_new_book",
+    inherited_from_book_id: str = "",
+    inherited_from_fingerprint: str = "",
 ) -> int:
     chunks = chunk_result.get("chunks", [])
     chunk_uuid_map = {c["chunk_id"]: to_chunk_uuid(book_id, c["chunk_id"]) for c in chunks}
 
     with psycopg.connect(dsn, autocommit=True) as conn:
         with conn.cursor() as cur:
+            status_norm = _normalize_review_status(toc_review_status)
+            metadata_patch: dict[str, Any] = {
+                "import_source": "import_book.py",
+                "book_fingerprint": str(book_fingerprint or "").strip().lower(),
+                "toc_review_status": status_norm,
+                "review_required": bool(review_required),
+                "review_state_schema_version": "bookflow.review_state.v1",
+                "review_state_origin": str(review_state_origin or "").strip() or "default_pending_new_book",
+                "review_state_resolved_at": now_iso(),
+                "review_state_inherited_from_book_id": str(inherited_from_book_id or "").strip(),
+                "review_state_inherited_from_fingerprint": str(inherited_from_fingerprint or "").strip().lower(),
+            }
+            reviewed_at = str(toc_reviewed_at or "").strip()
+            if status_norm == "approved" and reviewed_at:
+                metadata_patch["toc_reviewed_at"] = reviewed_at
+
             cur.execute(
                 """
                 INSERT INTO books (
@@ -827,7 +1012,7 @@ def import_to_db(
                   source_path = EXCLUDED.source_path,
                   processing_status = EXCLUDED.processing_status,
                   total_sections = EXCLUDED.total_sections,
-                  metadata = EXCLUDED.metadata,
+                  metadata = COALESCE(books.metadata, '{}'::jsonb) || EXCLUDED.metadata,
                   updated_at = NOW()
                 """,
                 (
@@ -839,7 +1024,7 @@ def import_to_db(
                     source_format,
                     source_path,
                     len({c["section_id"] for c in chunks}),
-                    Json({"import_source": "import_book.py"}),
+                    Json(metadata_patch),
                 ),
             )
 
@@ -1002,9 +1187,21 @@ def main() -> int:
         source_format = args.source_format or guess_source_format(input_path)
         context["source_format"] = source_format
         source_fingerprint = ""
-        if source_format == "pdf":
+        try:
             source_fingerprint = compute_file_sha256(input_path)
+        except Exception:
+            source_fingerprint = ""
+        if source_fingerprint:
             context["book_fingerprint"] = source_fingerprint
+
+        review_state = choose_import_review_state(existing_book=None, fingerprint_book=None)
+        if not args.dry_run and dsn:
+            review_state = resolve_import_review_state(
+                dsn=dsn,
+                book_id=book_id,
+                source_fingerprint=source_fingerprint,
+            )
+            context["review_state_origin"] = str(review_state.get("review_state_origin") or "")
 
         if source_format == "pdf":
             toc_source, toc_entries, toc_warnings, total_pages = resolve_pdf_toc_entries(
@@ -1072,6 +1269,11 @@ def main() -> int:
                 "materialization_fingerprint": build_materialization_fingerprint(chunk_records) if chunk_records else None,
                 "pdf_section_storage_mode": str(args.pdf_section_storage),
                 "book_fingerprint": source_fingerprint,
+                "review_state_schema_version": "bookflow.review_state.v1",
+                "review_state_origin": str(review_state.get("review_state_origin") or ""),
+                "review_state_resolved_at": now_iso(),
+                "review_state_inherited_from_book_id": str(review_state.get("inherited_from_book_id") or ""),
+                "review_state_inherited_from_fingerprint": str(review_state.get("inherited_from_fingerprint") or ""),
             }
             inserted = run_with_retry(
                 lambda: upsert_book_and_pdf_chunks(
@@ -1091,7 +1293,9 @@ def main() -> int:
                     manual_toc_entries=toc_entries if toc_source == "manual_toc" else None,
                     extra_metadata=extra_metadata,
                     processing_status="processing" if needs_manual_toc else "ready",
-                    toc_review_status="pending_review",
+                    toc_review_status=str(review_state.get("toc_review_status") or "pending_review"),
+                    review_required=bool(review_state.get("review_required", True)),
+                    toc_reviewed_at=str(review_state.get("toc_reviewed_at") or ""),
                 ),
                 retries=max(0, int(args.retry)),
                 retry_delay_sec=max(0.0, float(args.retry_delay_sec)),
@@ -1126,6 +1330,8 @@ def main() -> int:
                         "materialized_chunks": materialized.get("materialized_chunks", 0),
                         "generated_pdf_count": materialized.get("generated_pdf_count", 0),
                         "chunks_upserted": inserted,
+                        "toc_review_status_effective": str(review_state.get("toc_review_status") or "pending_review"),
+                        "review_state_origin": str(review_state.get("review_state_origin") or ""),
                         "failed_entries": materialized.get("failed_entries", []),
                         "warnings": materialized.get("warnings", []),
                     },
@@ -1187,6 +1393,13 @@ def main() -> int:
                 source_format=source_format,
                 source_path=str(input_path.resolve()),
                 chunk_result=chunk_result,
+                book_fingerprint=source_fingerprint,
+                toc_review_status=str(review_state.get("toc_review_status") or "pending_review"),
+                review_required=bool(review_state.get("review_required", True)),
+                toc_reviewed_at=str(review_state.get("toc_reviewed_at") or ""),
+                review_state_origin=str(review_state.get("review_state_origin") or ""),
+                inherited_from_book_id=str(review_state.get("inherited_from_book_id") or ""),
+                inherited_from_fingerprint=str(review_state.get("inherited_from_fingerprint") or ""),
             ),
             retries=max(0, int(args.retry)),
             retry_delay_sec=max(0.0, float(args.retry_delay_sec)),
@@ -1198,6 +1411,8 @@ def main() -> int:
                     "book_id": payload["book_id"],
                     "title": args.title,
                     "chunks_upserted": inserted,
+                    "toc_review_status_effective": str(review_state.get("toc_review_status") or "pending_review"),
+                    "review_state_origin": str(review_state.get("review_state_origin") or ""),
                     "epub_sample_limit": int(args.epub_sample_limit),
                     "epub_topk_min_count": int(args.epub_topk_min_count),
                     "epub_topk_limit": int(args.epub_topk_limit),

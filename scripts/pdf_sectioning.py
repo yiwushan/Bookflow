@@ -399,7 +399,9 @@ def _base_book_metadata_patch(
     chunk_count: int,
     manual_toc_entries: list[dict[str, Any]] | None = None,
     extra_metadata: dict[str, Any] | None = None,
-    toc_review_status: str = "pending_review",
+    toc_review_status: str | None = "pending_review",
+    review_required: bool | None = None,
+    toc_reviewed_at: str | None = None,
 ) -> dict[str, Any]:
     patch: dict[str, Any] = {
         "import_source": "import_book.py",
@@ -408,9 +410,21 @@ def _base_book_metadata_patch(
         "materialization_status": "pending_manual_toc" if needs_manual_toc else "materialized",
         "materialized_chunk_count": int(chunk_count),
         "materialized_at": _now_iso_utc() if chunk_count > 0 else None,
-        "toc_review_status": str(toc_review_status or "pending_review"),
-        "review_required": True,
     }
+    status = str(toc_review_status or "").strip().lower()
+    if status:
+        if status not in {"pending_review", "approved", "rejected"}:
+            status = "pending_review"
+        patch["toc_review_status"] = status
+        if review_required is None:
+            patch["review_required"] = status != "approved"
+        else:
+            patch["review_required"] = bool(review_required)
+        reviewed_at = str(toc_reviewed_at or "").strip()
+        if status == "approved" and reviewed_at:
+            patch["toc_reviewed_at"] = reviewed_at
+    elif review_required is not None:
+        patch["review_required"] = bool(review_required)
     if manual_toc_entries is not None:
         patch.update(
             {
@@ -443,7 +457,9 @@ def upsert_book_and_pdf_chunks(
     manual_toc_entries: list[dict[str, Any]] | None = None,
     extra_metadata: dict[str, Any] | None = None,
     processing_status: str = "ready",
-    toc_review_status: str = "pending_review",
+    toc_review_status: str | None = "pending_review",
+    review_required: bool | None = None,
+    toc_reviewed_at: str | None = None,
 ) -> int:
     if psycopg is None or Json is None:
         raise RuntimeError("psycopg is required for DB materialization")
@@ -455,6 +471,8 @@ def upsert_book_and_pdf_chunks(
         manual_toc_entries=manual_toc_entries,
         extra_metadata=extra_metadata,
         toc_review_status=toc_review_status,
+        review_required=review_required,
+        toc_reviewed_at=toc_reviewed_at,
     )
 
     with psycopg.connect(dsn, autocommit=True) as conn:

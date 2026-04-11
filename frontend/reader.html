@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta id="viewportMeta" name="viewport" content="width=device-width, initial-scale=1">
   <title>BookFlow Reader</title>
   <link rel="stylesheet" href="/app/styles.css">
 </head>
@@ -14,12 +14,16 @@
           <h1>章节阅读</h1>
           <p>读不懂就回看上一节，读顺了继续下一节。</p>
         </div>
-        <a id="backFeedLink" class="btn subtle link" href="/app">返回 Feed</a>
+        <div class="row">
+          <a id="backFeedLink" class="btn subtle link" href="/app">返回 Feed</a>
+          <button id="logoutBtn" class="btn subtle" type="button">退出登录</button>
+        </div>
       </div>
       <div class="row">
-        <input id="tokenInput" class="input" placeholder="token" style="min-width:220px;">
-        <input id="userInput" class="input" placeholder="user_id (可选)" style="min-width:260px;">
-        <button id="saveBtn" class="btn primary" type="button">保存配置</button>
+        <input id="tokenInput" type="hidden">
+        <input id="userInput" type="hidden">
+        <button id="saveBtn" class="btn primary" type="button" hidden>保存配置</button>
+        <span id="currentUserLabel" class="hint"></span>
       </div>
       <div id="notice" class="notice">准备加载章节...</div>
     </section>
@@ -27,7 +31,39 @@
     <section id="readerCard" class="panel reader-card" hidden>
       <h2 id="titleEl" class="reader-title"></h2>
       <p id="metaEl" class="reader-meta"></p>
+      <div id="readerStats" class="reader-stats" aria-live="polite">
+        <span>点赞 <strong id="likeCountEl">0</strong></span>
+        <span>评论 <strong id="commentCountEl">0</strong></span>
+        <span>完成 <strong id="completeCountEl">0</strong></span>
+      </div>
+      <div id="viewerTools" class="reader-viewer-tools" hidden>
+        <div class="reader-viewer-mode" role="group" aria-label="阅读视图切换">
+          <button id="viewerModePdfBtn" class="btn subtle viewer-mode-btn" type="button" aria-pressed="false">PDF</button>
+          <button id="viewerModeImageBtn" class="btn subtle viewer-mode-btn" type="button" aria-pressed="false">图片</button>
+        </div>
+        <div id="imageBrowseTools" class="reader-viewer-mode image-browse-tools" role="group" aria-label="图片浏览方式" hidden>
+          <button id="imageBrowseStackBtn" class="btn subtle viewer-mode-btn" type="button" aria-pressed="false">竖向</button>
+          <button id="imageBrowseSliderBtn" class="btn subtle viewer-mode-btn" type="button" aria-pressed="false">滑动</button>
+        </div>
+        <a id="openPdfLink" class="btn subtle link viewer-open-link" href="#" target="_blank" rel="noopener">新窗口打开 PDF</a>
+        <p id="viewerHint" class="hint viewer-hint"></p>
+      </div>
       <iframe id="pdfFrame" class="reader-pdf" hidden title="章节 PDF"></iframe>
+      <div id="imageViewer" class="reader-images" hidden></div>
+      <section id="imageLightbox" class="image-lightbox" hidden>
+        <button id="imageLightboxBackdrop" class="image-lightbox-backdrop" type="button" aria-label="关闭图片预览"></button>
+        <div id="imageLightboxPanel" class="image-lightbox-panel" role="dialog" aria-modal="true" aria-label="图片放大预览">
+          <div class="row image-lightbox-head">
+            <span id="imageLightboxMeta" class="hint"></span>
+          </div>
+          <div id="imageLightboxViewport" class="image-lightbox-viewport" tabindex="0" aria-label="图片横向浏览"></div>
+          <div id="imageLightboxZoomTools" class="image-lightbox-zoom-tools" role="group" aria-label="图片缩放控制" hidden>
+            <button id="imageZoomOutBtn" class="btn subtle" type="button" aria-label="缩小图片">-</button>
+            <span id="imageZoomLabel" class="image-lightbox-zoom-label">100%</span>
+            <button id="imageZoomInBtn" class="btn subtle" type="button" aria-label="放大图片">+</button>
+          </div>
+        </div>
+      </section>
       <pre id="textEl" class="reader-text" hidden></pre>
 
       <div class="reader-nav">
@@ -37,14 +73,75 @@
       </div>
 
       <div class="reader-actions">
-        <button id="completeBtn" class="btn primary" type="button">标记完成</button>
         <button id="confusionBtn" class="btn subtle" type="button">看不懂</button>
-        <button id="likeBtn" class="btn subtle" type="button">点赞</button>
+        <button id="likeBtn" class="btn subtle icon-toggle" type="button" aria-pressed="false">
+          <span id="likeIcon" class="icon-toggle-mark" aria-hidden="true">♡</span>
+          <span id="likeText">点赞</span>
+        </button>
+        <div id="archiveFlagWrap" class="archive-flag-wrap">
+          <button
+            id="archiveFlagBtn"
+            class="archive-flag-btn"
+            type="button"
+            aria-label="归档并从 Feed 隐藏"
+            aria-expanded="false"
+            aria-haspopup="dialog"
+            title="归档并从 Feed 隐藏"
+          >
+            ⚠
+          </button>
+          <section id="archiveBubble" class="archive-bubble" role="dialog" aria-label="归档原因选择" hidden>
+            <p id="archiveBubbleTitle" class="archive-bubble-title">归档并从 Feed 隐藏</p>
+            <div id="archiveReasonForm" class="archive-reason-form">
+              <label class="archive-option">
+                <input id="archiveReasonNonSubstantial" type="radio" name="archiveReason" value="non_substantive">
+                非实质性内容
+              </label>
+              <label class="archive-option">
+                <input id="archiveReasonFragmented" type="radio" name="archiveReason" value="fragmented">
+                内容破碎
+              </label>
+              <label class="archive-option">
+                <input id="archiveReasonCustom" type="radio" name="archiveReason" value="custom">
+                待输入框
+              </label>
+              <textarea
+                id="archiveReasonInput"
+                class="archive-reason-input"
+                placeholder="补充说明（选择“待输入框”时必填）"
+                disabled
+              ></textarea>
+            </div>
+            <p id="archiveArchivedHint" class="archive-archived-hint" hidden>
+              当前章节已归档（Feed 中已隐藏）。点击“取消归档”即可恢复到 Feed。
+            </p>
+            <div class="archive-actions">
+              <button id="archiveCancelBtn" class="btn subtle" type="button">取消</button>
+              <button id="archiveSubmitBtn" class="btn subtle" type="button">确定</button>
+            </div>
+          </section>
+        </div>
       </div>
 
-      <div class="reader-actions">
-        <button id="commentBtn" class="btn subtle" type="button">写评论</button>
-      </div>
+      <section class="complete-panel" aria-label="完成标记">
+        <div class="row spread">
+          <strong>完成标记</strong>
+          <button id="completeBtn" class="btn subtle" type="button">+1 完成</button>
+        </div>
+        <div id="completeMarks" class="complete-marks" aria-live="polite"></div>
+      </section>
+
+      <section class="comment-panel" aria-label="评论区">
+        <div class="row spread">
+          <strong>评论区</strong>
+          <span id="commentMeta" class="hint"></span>
+        </div>
+        <textarea id="commentInput" class="comment-input" placeholder="写下你的理解、问题或补充..."></textarea>
+        <div class="row">
+          <button id="commentSubmitBtn" class="btn subtle" type="button">发表评论</button>
+        </div>
+        <div id="commentList" class="comment-list"></div>
+      </section>
     </section>
   </main>
 
@@ -52,6 +149,11 @@
   <script>
     (() => {
       const App = window.BookFlowApp;
+      if (typeof App.isLoggedIn === "function" && !App.isLoggedIn()) {
+        const next = encodeURIComponent(`${window.location.pathname}${window.location.search || ""}`);
+        window.location.href = `/app/login.html?next=${next}`;
+        return;
+      }
       const FEED_STATE_KEY = "bookflow.feed.state.v1";
       const query = App.parseQuery();
       const initialUserId = App.isUuidLike(query.user_id) ? query.user_id : App.getStoredUserId();
@@ -63,35 +165,1107 @@
         chunkId: query.chunk_id || "",
         detail: null,
         context: null,
+        stats: {
+          like_count: 0,
+          comment_count: 0,
+          complete_count: 0,
+        },
+        likedByMe: false,
+        archivedByMe: false,
+        viewerCompleteCount: 0,
+        comments: [],
+        loadingComments: false,
+        commentsReqSeq: 0,
+        likeBusy: false,
+        commentBusy: false,
+        archiveBusy: false,
         enterSent: false,
         enterAt: Date.now(),
         leaveReported: false,
+        preferredViewerMode: "pdf",
+        viewerMode: "text",
+        sectionPdfUrl: "",
+        pageImageUrls: [],
+        pageImageCacheKey: "",
+        imageBrowseMode: "stack",
+        sliderIndex: 0,
+        lightboxOpen: false,
+        lightboxIndex: 0,
+        lightboxScale: 1,
+        lightboxPanX: 0,
+        lightboxPanY: 0,
+        lightboxCacheKey: "",
+        viewportMetaOriginal: "",
       };
+      const appliedBumpIds = new Set();
+      const supportsPointerEvents = typeof window.PointerEvent === "function";
+      let imageTapPointer = null;
+      let lightboxScrollRaf = 0;
+      let lightboxCloseTapPointer = null;
+      let lightboxScrollAt = 0;
+      let lightboxDragState = null;
+      const lightboxTouchPointerIds = new Set();
+      const lightboxTouchPoints = new Map();
+      let lightboxHadMultiTouch = false;
+      let lightboxPinchState = null;
 
       const tokenInput = document.getElementById("tokenInput");
+      const viewportMeta = document.getElementById("viewportMeta");
       const userInput = document.getElementById("userInput");
       const saveBtn = document.getElementById("saveBtn");
+      const currentUserLabel = document.getElementById("currentUserLabel");
       const backFeedLink = document.getElementById("backFeedLink");
+      const logoutBtn = document.getElementById("logoutBtn");
       const noticeEl = document.getElementById("notice");
       const readerCard = document.getElementById("readerCard");
       const titleEl = document.getElementById("titleEl");
       const metaEl = document.getElementById("metaEl");
+      const likeCountEl = document.getElementById("likeCountEl");
+      const commentCountEl = document.getElementById("commentCountEl");
+      const completeCountEl = document.getElementById("completeCountEl");
+      const viewerTools = document.getElementById("viewerTools");
+      const viewerModePdfBtn = document.getElementById("viewerModePdfBtn");
+      const viewerModeImageBtn = document.getElementById("viewerModeImageBtn");
+      const imageBrowseTools = document.getElementById("imageBrowseTools");
+      const imageBrowseStackBtn = document.getElementById("imageBrowseStackBtn");
+      const imageBrowseSliderBtn = document.getElementById("imageBrowseSliderBtn");
+      const openPdfLink = document.getElementById("openPdfLink");
+      const viewerHint = document.getElementById("viewerHint");
       const pdfFrame = document.getElementById("pdfFrame");
+      const imageViewer = document.getElementById("imageViewer");
+      const imageLightbox = document.getElementById("imageLightbox");
+      const imageLightboxBackdrop = document.getElementById("imageLightboxBackdrop");
+      const imageLightboxPanel = document.getElementById("imageLightboxPanel");
+      const imageLightboxMeta = document.getElementById("imageLightboxMeta");
+      const imageLightboxViewport = document.getElementById("imageLightboxViewport");
+      const imageLightboxZoomTools = document.getElementById("imageLightboxZoomTools");
+      const imageZoomOutBtn = document.getElementById("imageZoomOutBtn");
+      const imageZoomInBtn = document.getElementById("imageZoomInBtn");
+      const imageZoomLabel = document.getElementById("imageZoomLabel");
       const textEl = document.getElementById("textEl");
       const prevBtn = document.getElementById("prevBtn");
       const nextBtn = document.getElementById("nextBtn");
       const bookBtn = document.getElementById("bookBtn");
       const completeBtn = document.getElementById("completeBtn");
+      const completeMarksEl = document.getElementById("completeMarks");
       const confusionBtn = document.getElementById("confusionBtn");
       const likeBtn = document.getElementById("likeBtn");
-      const commentBtn = document.getElementById("commentBtn");
+      const likeIcon = document.getElementById("likeIcon");
+      const likeText = document.getElementById("likeText");
+      const commentMeta = document.getElementById("commentMeta");
+      const commentInput = document.getElementById("commentInput");
+      const commentSubmitBtn = document.getElementById("commentSubmitBtn");
+      const commentList = document.getElementById("commentList");
+      const archiveFlagWrap = document.getElementById("archiveFlagWrap");
+      const archiveFlagBtn = document.getElementById("archiveFlagBtn");
+      const archiveBubble = document.getElementById("archiveBubble");
+      const archiveBubbleTitle = document.getElementById("archiveBubbleTitle");
+      const archiveReasonForm = document.getElementById("archiveReasonForm");
+      const archiveArchivedHint = document.getElementById("archiveArchivedHint");
+      const archiveReasonInput = document.getElementById("archiveReasonInput");
+      const archiveCancelBtn = document.getElementById("archiveCancelBtn");
+      const archiveSubmitBtn = document.getElementById("archiveSubmitBtn");
 
       tokenInput.value = state.token;
       userInput.value = state.userId || "";
+      if (currentUserLabel instanceof HTMLElement) {
+        const username = typeof App.getStoredUsername === "function" ? App.getStoredUsername() : "";
+        currentUserLabel.textContent = username
+          ? `当前用户：${username}`
+          : (state.userId ? `当前用户：${state.userId.slice(0, 8)}` : "未登录");
+      }
+      state.preferredViewerMode = detectDefaultViewerMode();
+      renderLikeState();
+      renderArchiveState();
+      renderCompleteMarks();
+      renderComments();
+      renderViewerModeState();
+      renderLightbox();
+      updateArchiveBubbleLayout();
+      syncArchiveReasonInputState();
+      closeArchiveBubble();
+      if (typeof App.showFlashToast === "function") {
+        App.showFlashToast();
+      }
 
       function setNotice(text, isError = false) {
         noticeEl.className = isError ? "notice error" : "notice";
         noticeEl.textContent = text;
+      }
+
+      function showToast(message, type = "success", duration = 1800) {
+        if (typeof App.showToast !== "function") {
+          return;
+        }
+        App.showToast(message, { type, duration });
+      }
+
+      function setFlashToast(message, type = "success", duration = 2000) {
+        if (typeof App.setFlashToast !== "function") {
+          return;
+        }
+        App.setFlashToast(message, { type, duration });
+      }
+
+      function normalizeCount(value) {
+        const num = Number(value || 0);
+        if (!Number.isFinite(num)) {
+          return 0;
+        }
+        return Math.max(0, Math.trunc(num));
+      }
+
+      function detectDefaultViewerMode() {
+        const ua = String(window.navigator?.userAgent || "");
+        const mobileUa = /Android|iPhone|iPad|iPod|Mobile|HarmonyOS|Windows Phone/i.test(ua);
+        const narrowViewport = typeof window.matchMedia === "function"
+          ? window.matchMedia("(max-width: 860px)").matches
+          : false;
+        return mobileUa || narrowViewport ? "image" : "pdf";
+      }
+
+      function isCoarsePointer() {
+        if (typeof window.matchMedia !== "function") {
+          return false;
+        }
+        return window.matchMedia("(pointer: coarse)").matches;
+      }
+
+      function lockViewportScale(lock) {
+        if (!(viewportMeta instanceof HTMLMetaElement) || !isCoarsePointer()) {
+          return;
+        }
+        if (lock) {
+          if (!state.viewportMetaOriginal) {
+            state.viewportMetaOriginal = String(viewportMeta.getAttribute("content") || "");
+          }
+          viewportMeta.setAttribute(
+            "content",
+            "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
+          );
+          return;
+        }
+        if (state.viewportMetaOriginal) {
+          viewportMeta.setAttribute("content", state.viewportMetaOriginal);
+          state.viewportMetaOriginal = "";
+        }
+      }
+
+      function normalizePageNumber(value) {
+        const num = Number(value || 0);
+        if (!Number.isFinite(num)) {
+          return null;
+        }
+        const page = Math.trunc(num);
+        return page >= 1 ? page : null;
+      }
+
+      function buildBookPageImageUrl(bookId, page) {
+        const safeBookId = String(bookId || "").trim();
+        const safePage = Math.max(1, normalizePageNumber(page) || 1);
+        if (!safeBookId) {
+          return "";
+        }
+        const params = new URLSearchParams();
+        params.set("book_id", safeBookId);
+        params.set("page", String(safePage));
+        if (state.token) {
+          params.set("token", state.token);
+        }
+        params.set("device_id", App.getDeviceId());
+        return `/v1/book_page_image?${params.toString()}`;
+      }
+
+      function buildSectionImageItems(detail) {
+        const src = detail && typeof detail === "object" ? detail : {};
+        const bookId = String(src.book_id || state.bookId || "").trim();
+        const startPage = normalizePageNumber(src.page_start);
+        const endPage = normalizePageNumber(src.page_end);
+        if (!bookId || !startPage || !endPage || endPage < startPage) {
+          return [];
+        }
+        const maxPages = 120;
+        const total = Math.min(maxPages, endPage - startPage + 1);
+        const items = [];
+        for (let offset = 0; offset < total; offset += 1) {
+          const page = startPage + offset;
+          items.push({
+            page,
+            url: buildBookPageImageUrl(bookId, page),
+          });
+        }
+        return items.filter((item) => !!item.url);
+      }
+
+      function normalizeImageBrowseMode(raw) {
+        return String(raw || "").trim() === "slider" ? "slider" : "stack";
+      }
+
+      function clampImageIndex(index) {
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (total <= 0) {
+          return -1;
+        }
+        const n = Number(index || 0);
+        if (!Number.isFinite(n)) {
+          return 0;
+        }
+        return Math.max(0, Math.min(total - 1, Math.trunc(n)));
+      }
+
+      function updateSliderCounter() {
+        const counterEl = imageViewer.querySelector("[data-slider-counter]");
+        if (!(counterEl instanceof HTMLElement)) {
+          return;
+        }
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!total) {
+          counterEl.textContent = "";
+          return;
+        }
+        const safeIndex = clampImageIndex(state.sliderIndex);
+        state.sliderIndex = safeIndex < 0 ? 0 : safeIndex;
+        const item = state.pageImageUrls[state.sliderIndex];
+        const pageNum = Math.max(1, normalizePageNumber(item?.page) || 1);
+        counterEl.textContent = `${state.sliderIndex + 1}/${total} · 第 ${pageNum} 页`;
+      }
+
+      function updateSliderNavButtons() {
+        const prevBtnEl = imageViewer.querySelector("[data-slider-nav='prev']");
+        const nextBtnEl = imageViewer.querySelector("[data-slider-nav='next']");
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        const safeIndex = clampImageIndex(state.sliderIndex);
+        const idx = safeIndex < 0 ? 0 : safeIndex;
+        if (prevBtnEl instanceof HTMLButtonElement) {
+          prevBtnEl.disabled = total <= 1 || idx <= 0;
+        }
+        if (nextBtnEl instanceof HTMLButtonElement) {
+          nextBtnEl.disabled = total <= 1 || idx >= total - 1;
+        }
+      }
+
+      function updateSliderIndexFromTrack(trackEl) {
+        if (!(trackEl instanceof HTMLElement)) {
+          return;
+        }
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!total) {
+          return;
+        }
+        const width = Math.max(1, trackEl.clientWidth);
+        const next = Math.max(0, Math.min(total - 1, Math.round(trackEl.scrollLeft / width)));
+        state.sliderIndex = next;
+        updateSliderCounter();
+        updateSliderNavButtons();
+      }
+
+      function scrollSliderToIndex(index, smooth = true) {
+        const trackEl = imageViewer.querySelector(".reader-slider-track");
+        if (!(trackEl instanceof HTMLElement)) {
+          return;
+        }
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!total) {
+          return;
+        }
+        const next = Math.max(0, Math.min(total - 1, Math.trunc(Number(index || 0))));
+        state.sliderIndex = next;
+        const width = Math.max(1, trackEl.clientWidth);
+        trackEl.scrollTo({
+          left: width * next,
+          behavior: smooth ? "smooth" : "auto",
+        });
+        updateSliderCounter();
+        updateSliderNavButtons();
+      }
+
+      function renderImageViewer() {
+        const items = Array.isArray(state.pageImageUrls) ? state.pageImageUrls : [];
+        if (!items.length) {
+          state.pageImageCacheKey = "";
+          imageViewer.innerHTML = '<p class="comment-empty">当前小节没有可用的图片页。</p>';
+          return;
+        }
+
+        const mode = normalizeImageBrowseMode(state.imageBrowseMode);
+        const renderSlider = mode === "slider" && items.length > 1;
+        const cacheKey = `${renderSlider ? "slider" : "stack"}:${items.map((item) => String(item.page)).join(",")}`;
+        if (state.pageImageCacheKey === cacheKey) {
+          if (renderSlider) {
+            updateSliderCounter();
+            updateSliderNavButtons();
+          }
+          return;
+        }
+        state.pageImageCacheKey = cacheKey;
+
+        if (renderSlider) {
+          const safeIndex = clampImageIndex(state.sliderIndex);
+          state.sliderIndex = safeIndex < 0 ? 0 : safeIndex;
+          imageViewer.innerHTML = `
+            <div class="reader-slider-shell">
+              <button class="btn subtle reader-slider-nav" type="button" data-slider-nav="prev" aria-label="上一页">‹</button>
+              <div class="reader-slider-track" tabindex="0">
+                ${items.map((item, idx) => {
+                  const safeUrl = App.escapeHtml(item.url || "");
+                  const safePage = Math.max(1, normalizePageNumber(item.page) || 1);
+                  return `
+                    <figure class="reader-slider-slide">
+                      <img
+                        class="reader-slider-image"
+                        src="${safeUrl}"
+                        alt="第 ${safePage} 页"
+                        loading="lazy"
+                        decoding="async"
+                        data-image-index="${idx}"
+                      >
+                      <figcaption>第 ${safePage} 页</figcaption>
+                    </figure>
+                  `;
+                }).join("")}
+              </div>
+              <button class="btn subtle reader-slider-nav" type="button" data-slider-nav="next" aria-label="下一页">›</button>
+            </div>
+            <div class="reader-slider-status">
+              <span class="hint" data-slider-counter></span>
+            </div>
+          `;
+          const trackEl = imageViewer.querySelector(".reader-slider-track");
+          if (trackEl instanceof HTMLElement) {
+            let rafId = 0;
+            trackEl.addEventListener("scroll", () => {
+              if (rafId) {
+                return;
+              }
+              rafId = window.requestAnimationFrame(() => {
+                rafId = 0;
+                updateSliderIndexFromTrack(trackEl);
+              });
+            }, { passive: true });
+            window.requestAnimationFrame(() => {
+              scrollSliderToIndex(state.sliderIndex, false);
+            });
+          }
+          updateSliderCounter();
+          updateSliderNavButtons();
+          return;
+        }
+
+        imageViewer.innerHTML = items.map((item, idx) => {
+          const safeUrl = App.escapeHtml(item.url || "");
+          const safePage = Math.max(1, normalizePageNumber(item.page) || 1);
+          return `
+            <figure class="reader-page-image">
+              <img
+                class="reader-page-image-img"
+                src="${safeUrl}"
+                alt="第 ${safePage} 页"
+                loading="lazy"
+                decoding="async"
+                data-image-index="${idx}"
+              >
+              <figcaption>第 ${safePage} 页 · 点击放大</figcaption>
+            </figure>
+          `;
+        }).join("");
+      }
+
+      function clampLightboxScale(value) {
+        const raw = Number(value || 1);
+        if (!Number.isFinite(raw)) {
+          return 1;
+        }
+        return Math.max(1, Math.min(3.6, Math.round(raw * 100) / 100));
+      }
+
+      function renderLightboxZoomState() {
+        const showTools = state.lightboxOpen && !isCoarsePointer();
+        if (imageLightboxZoomTools instanceof HTMLElement) {
+          imageLightboxZoomTools.hidden = !showTools;
+        }
+        if (!showTools) {
+          return;
+        }
+        if (imageZoomLabel instanceof HTMLElement) {
+          imageZoomLabel.textContent = `${Math.round(state.lightboxScale * 100)}%`;
+        }
+        if (imageZoomOutBtn instanceof HTMLButtonElement) {
+          imageZoomOutBtn.disabled = state.lightboxScale <= 1.01;
+        }
+        if (imageZoomInBtn instanceof HTMLButtonElement) {
+          imageZoomInBtn.disabled = state.lightboxScale >= 3.59;
+        }
+      }
+
+      function clampLightboxPan() {
+        const slideEl = getLightboxSlide();
+        const imageEl = getLightboxImage();
+        if (!(slideEl instanceof HTMLElement) || !(imageEl instanceof HTMLImageElement) || state.lightboxScale <= 1.01) {
+          state.lightboxPanX = 0;
+          state.lightboxPanY = 0;
+          return;
+        }
+        const viewW = Math.max(1, slideEl.clientWidth);
+        const viewH = Math.max(1, slideEl.clientHeight);
+        const baseW = Math.max(1, imageEl.clientWidth);
+        const baseH = Math.max(1, imageEl.clientHeight);
+        const scaledW = baseW * state.lightboxScale;
+        const scaledH = baseH * state.lightboxScale;
+        const maxX = Math.max(0, (scaledW - viewW) / 2);
+        const maxY = Math.max(0, (scaledH - viewH) / 2);
+        state.lightboxPanX = Math.max(-maxX, Math.min(maxX, state.lightboxPanX));
+        state.lightboxPanY = Math.max(-maxY, Math.min(maxY, state.lightboxPanY));
+      }
+
+      function applyLightboxTransform() {
+        state.lightboxScale = clampLightboxScale(state.lightboxScale);
+        if (state.lightboxScale <= 1.01) {
+          state.lightboxPanX = 0;
+          state.lightboxPanY = 0;
+        }
+        const activeImage = getLightboxImage();
+        imageLightboxViewport.querySelectorAll(".image-lightbox-image").forEach((img) => {
+          if (!(img instanceof HTMLImageElement)) {
+            return;
+          }
+          if (img !== activeImage) {
+            img.style.removeProperty("--img-scale");
+            img.style.removeProperty("--img-pan-x");
+            img.style.removeProperty("--img-pan-y");
+          }
+        });
+        if (activeImage instanceof HTMLImageElement) {
+          clampLightboxPan();
+          activeImage.style.setProperty("--img-scale", String(state.lightboxScale));
+          activeImage.style.setProperty("--img-pan-x", `${Math.round(state.lightboxPanX)}px`);
+          activeImage.style.setProperty("--img-pan-y", `${Math.round(state.lightboxPanY)}px`);
+        }
+        if (imageLightboxPanel instanceof HTMLElement) {
+          imageLightboxPanel.classList.toggle("is-zoomed", state.lightboxScale > 1.01);
+        }
+        renderLightboxZoomState();
+      }
+
+      function setLightboxScale(nextScale, anchorClientX = null, anchorClientY = null) {
+        const scale = clampLightboxScale(nextScale);
+        const prev = state.lightboxScale;
+        if (Math.abs(scale - prev) < 0.001) {
+          renderLightboxZoomState();
+          return;
+        }
+        state.lightboxScale = scale;
+        const slideEl = getLightboxSlide();
+        if (
+          slideEl instanceof HTMLElement
+          && Number.isFinite(anchorClientX)
+          && Number.isFinite(anchorClientY)
+          && prev > 0
+        ) {
+          const rect = slideEl.getBoundingClientRect();
+          const pointX = Number(anchorClientX) - (rect.left + rect.width / 2);
+          const pointY = Number(anchorClientY) - (rect.top + rect.height / 2);
+          const ratio = state.lightboxScale / prev;
+          state.lightboxPanX = pointX - (pointX - state.lightboxPanX) * ratio;
+          state.lightboxPanY = pointY - (pointY - state.lightboxPanY) * ratio;
+        }
+        if (state.lightboxScale <= 1.01) {
+          state.lightboxPanX = 0;
+          state.lightboxPanY = 0;
+        }
+        applyLightboxTransform();
+      }
+
+      function changeLightboxScale(step, anchorClientX = null, anchorClientY = null) {
+        const delta = Number(step || 0);
+        if (!Number.isFinite(delta) || delta === 0) {
+          return;
+        }
+        setLightboxScale(state.lightboxScale + delta, anchorClientX, anchorClientY);
+      }
+
+      function getLightboxPinchMetrics() {
+        if (lightboxTouchPoints.size < 2) {
+          return null;
+        }
+        const points = lightboxTouchPoints.values();
+        const first = points.next().value;
+        const second = points.next().value;
+        if (!first || !second) {
+          return null;
+        }
+        const dx = Number(second.x) - Number(first.x);
+        const dy = Number(second.y) - Number(first.y);
+        return {
+          distance: Math.hypot(dx, dy),
+          centerX: (Number(first.x) + Number(second.x)) / 2,
+          centerY: (Number(first.y) + Number(second.y)) / 2,
+        };
+      }
+
+      function updateLightboxMeta() {
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!total) {
+          imageLightboxMeta.textContent = "";
+          return;
+        }
+        const safeIndex = clampImageIndex(state.lightboxIndex);
+        state.lightboxIndex = safeIndex < 0 ? 0 : safeIndex;
+        const item = state.pageImageUrls[state.lightboxIndex];
+        const pageNum = Math.max(1, normalizePageNumber(item?.page) || 1);
+        imageLightboxMeta.textContent = `${state.lightboxIndex + 1}/${total} · 第 ${pageNum} 页`;
+      }
+
+      function updateLightboxIndexFromScroll() {
+        if (!(imageLightboxViewport instanceof HTMLElement)) {
+          return;
+        }
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!total) {
+          return;
+        }
+        const width = Math.max(1, imageLightboxViewport.clientWidth);
+        const next = Math.max(0, Math.min(total - 1, Math.round(imageLightboxViewport.scrollLeft / width)));
+        if (next === state.lightboxIndex) {
+          return;
+        }
+        state.lightboxIndex = next;
+        state.lightboxScale = 1;
+        state.lightboxPanX = 0;
+        state.lightboxPanY = 0;
+        applyLightboxTransform();
+        updateLightboxMeta();
+        if (normalizeImageBrowseMode(state.imageBrowseMode) === "slider") {
+          scrollSliderToIndex(next, false);
+        }
+      }
+
+      function scrollLightboxToIndex(index, smooth = true) {
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!total || !(imageLightboxViewport instanceof HTMLElement)) {
+          return;
+        }
+        const next = Math.max(0, Math.min(total - 1, Math.trunc(Number(index || 0))));
+        const changed = next !== state.lightboxIndex;
+        state.lightboxIndex = next;
+        if (changed) {
+          state.lightboxScale = 1;
+          state.lightboxPanX = 0;
+          state.lightboxPanY = 0;
+          applyLightboxTransform();
+        }
+        const width = Math.max(1, imageLightboxViewport.clientWidth);
+        imageLightboxViewport.scrollTo({
+          left: width * next,
+          behavior: smooth ? "smooth" : "auto",
+        });
+        updateLightboxMeta();
+        if (normalizeImageBrowseMode(state.imageBrowseMode) === "slider") {
+          scrollSliderToIndex(next, false);
+        }
+      }
+
+      function syncImageViewerToIndex(index, smooth = false) {
+        if (state.viewerMode !== "image") {
+          return;
+        }
+        const safeIndex = clampImageIndex(index);
+        if (safeIndex < 0) {
+          return;
+        }
+        const imageMode = normalizeImageBrowseMode(state.imageBrowseMode);
+        if (imageMode === "slider") {
+          state.sliderIndex = safeIndex;
+          scrollSliderToIndex(safeIndex, smooth);
+          return;
+        }
+        const target = imageViewer.querySelector(`img[data-image-index="${safeIndex}"]`);
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        target.scrollIntoView({
+          block: "center",
+          inline: "nearest",
+          behavior: smooth ? "smooth" : "auto",
+        });
+      }
+
+      function getLightboxSlide(index = state.lightboxIndex) {
+        const safeIndex = clampImageIndex(index);
+        if (safeIndex < 0) {
+          return null;
+        }
+        const el = imageLightboxViewport.querySelector(`.image-lightbox-slide[data-slide-index="${safeIndex}"]`);
+        return el instanceof HTMLElement ? el : null;
+      }
+
+      function getLightboxImage(index = state.lightboxIndex) {
+        const safeIndex = clampImageIndex(index);
+        if (safeIndex < 0) {
+          return null;
+        }
+        const el = imageLightboxViewport.querySelector(`.image-lightbox-image[data-image-index="${safeIndex}"]`);
+        return el instanceof HTMLImageElement ? el : null;
+      }
+
+      function renderLightbox() {
+        const isOpen = !!state.lightboxOpen;
+        imageLightbox.hidden = !isOpen;
+        document.body.classList.toggle("image-lightbox-open", isOpen);
+        lockViewportScale(isOpen && isCoarsePointer());
+        if (!isOpen) {
+          lightboxDragState = null;
+          lightboxCloseTapPointer = null;
+          lightboxTouchPointerIds.clear();
+          lightboxTouchPoints.clear();
+          lightboxHadMultiTouch = false;
+          lightboxPinchState = null;
+          imageLightboxViewport.innerHTML = "";
+          if (imageLightboxPanel instanceof HTMLElement) {
+            imageLightboxPanel.classList.remove("is-zoomed");
+          }
+          state.lightboxScale = 1;
+          state.lightboxPanX = 0;
+          state.lightboxPanY = 0;
+          lockViewportScale(false);
+          renderLightboxZoomState();
+          imageLightboxMeta.textContent = "";
+          state.lightboxCacheKey = "";
+          return;
+        }
+
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!total) {
+          state.lightboxOpen = false;
+          imageLightbox.hidden = true;
+          document.body.classList.remove("image-lightbox-open");
+          lockViewportScale(false);
+          lightboxDragState = null;
+          lightboxCloseTapPointer = null;
+          lightboxTouchPointerIds.clear();
+          lightboxTouchPoints.clear();
+          lightboxHadMultiTouch = false;
+          lightboxPinchState = null;
+          imageLightboxViewport.innerHTML = "";
+          if (imageLightboxPanel instanceof HTMLElement) {
+            imageLightboxPanel.classList.remove("is-zoomed");
+          }
+          state.lightboxScale = 1;
+          state.lightboxPanX = 0;
+          state.lightboxPanY = 0;
+          renderLightboxZoomState();
+          imageLightboxMeta.textContent = "";
+          state.lightboxCacheKey = "";
+          return;
+        }
+
+        const safeIndex = clampImageIndex(state.lightboxIndex);
+        state.lightboxIndex = safeIndex < 0 ? 0 : safeIndex;
+        const cacheKey = state.pageImageUrls.map((item) => String(item.page)).join(",");
+        if (state.lightboxCacheKey !== cacheKey) {
+          state.lightboxCacheKey = cacheKey;
+          imageLightboxViewport.innerHTML = `
+            <div class="image-lightbox-track">
+              ${state.pageImageUrls.map((item, idx) => {
+                const safeUrl = App.escapeHtml(item.url || "");
+                const safePage = Math.max(1, normalizePageNumber(item.page) || 1);
+                return `
+                  <figure class="image-lightbox-slide" data-slide-index="${idx}">
+                    <img
+                      class="image-lightbox-image"
+                      src="${safeUrl}"
+                      alt="第 ${safePage} 页"
+                      loading="lazy"
+                      decoding="async"
+                      draggable="false"
+                      data-image-index="${idx}"
+                    >
+                  </figure>
+                `;
+              }).join("")}
+            </div>
+          `;
+          imageLightboxViewport.querySelectorAll(".image-lightbox-image").forEach((img) => {
+            if (!(img instanceof HTMLImageElement)) {
+              return;
+            }
+            img.addEventListener("load", () => {
+              if (!state.lightboxOpen) {
+                return;
+              }
+              applyLightboxTransform();
+            }, { once: true });
+          });
+        }
+
+        updateLightboxMeta();
+        applyLightboxTransform();
+        window.requestAnimationFrame(() => {
+          scrollLightboxToIndex(state.lightboxIndex, false);
+          imageLightboxViewport.focus({ preventScroll: true });
+        });
+      }
+
+      function openImageLightbox(index) {
+        const safeIndex = clampImageIndex(index);
+        if (safeIndex < 0) {
+          return;
+        }
+        state.lightboxOpen = true;
+        state.lightboxIndex = safeIndex;
+        state.lightboxScale = 1;
+        state.lightboxPanX = 0;
+        state.lightboxPanY = 0;
+        renderLightbox();
+      }
+
+      function closeImageLightbox() {
+        if (!state.lightboxOpen) {
+          return;
+        }
+        const safeIndex = clampImageIndex(state.lightboxIndex);
+        state.lightboxOpen = false;
+        state.lightboxScale = 1;
+        state.lightboxPanX = 0;
+        state.lightboxPanY = 0;
+        renderLightbox();
+        if (safeIndex >= 0) {
+          window.requestAnimationFrame(() => {
+            syncImageViewerToIndex(safeIndex, false);
+          });
+        }
+      }
+
+      function shiftLightbox(step) {
+        const total = Array.isArray(state.pageImageUrls) ? state.pageImageUrls.length : 0;
+        if (!state.lightboxOpen || total <= 0) {
+          return;
+        }
+        const delta = Math.trunc(Number(step || 0));
+        if (!delta) {
+          return;
+        }
+        const next = Math.max(0, Math.min(total - 1, state.lightboxIndex + delta));
+        if (next === state.lightboxIndex) {
+          return;
+        }
+        scrollLightboxToIndex(next, true);
+      }
+
+      function renderImageBrowseModeState() {
+        const mode = normalizeImageBrowseMode(state.imageBrowseMode);
+        const hasImages = Array.isArray(state.pageImageUrls) && state.pageImageUrls.length > 0;
+        const canSlider = hasImages && state.pageImageUrls.length > 1;
+        const showTools = state.viewerMode === "image" && canSlider;
+        imageBrowseTools.hidden = !showTools;
+        if (!showTools) {
+          return;
+        }
+        imageBrowseStackBtn.classList.toggle("active", mode === "stack");
+        imageBrowseSliderBtn.classList.toggle("active", mode === "slider");
+        imageBrowseStackBtn.setAttribute("aria-pressed", mode === "stack" ? "true" : "false");
+        imageBrowseSliderBtn.setAttribute("aria-pressed", mode === "slider" ? "true" : "false");
+      }
+
+      function setImageBrowseMode(nextMode) {
+        const mode = normalizeImageBrowseMode(nextMode);
+        if (mode === state.imageBrowseMode) {
+          renderImageBrowseModeState();
+          return;
+        }
+        state.imageBrowseMode = mode;
+        state.pageImageCacheKey = "";
+        state.sliderIndex = 0;
+        if (state.viewerMode === "image") {
+          renderImageViewer();
+        }
+        renderImageBrowseModeState();
+      }
+
+      function renderViewerModeState() {
+        const mode = String(state.viewerMode || "text");
+        const hasPdf = !!state.sectionPdfUrl;
+        const hasImages = Array.isArray(state.pageImageUrls) && state.pageImageUrls.length > 0;
+        const imageMode = normalizeImageBrowseMode(state.imageBrowseMode);
+
+        viewerTools.hidden = !(hasPdf || hasImages);
+        viewerModePdfBtn.disabled = !hasPdf;
+        viewerModeImageBtn.disabled = !hasImages;
+
+        viewerModePdfBtn.classList.toggle("active", mode === "pdf");
+        viewerModeImageBtn.classList.toggle("active", mode === "image");
+        viewerModePdfBtn.setAttribute("aria-pressed", mode === "pdf" ? "true" : "false");
+        viewerModeImageBtn.setAttribute("aria-pressed", mode === "image" ? "true" : "false");
+
+        if (hasPdf) {
+          openPdfLink.href = state.sectionPdfUrl;
+          openPdfLink.removeAttribute("aria-disabled");
+          openPdfLink.classList.remove("disabled");
+        } else {
+          openPdfLink.href = "#";
+          openPdfLink.setAttribute("aria-disabled", "true");
+          openPdfLink.classList.add("disabled");
+        }
+
+        renderImageBrowseModeState();
+
+        if (mode === "image" && hasImages) {
+          if (state.pageImageUrls.length > 1) {
+            viewerHint.textContent = imageMode === "slider"
+              ? "滑动模式：左右滑动切页，点图进入全屏浏览。"
+              : "竖向模式：上下浏览；点图进入全屏后可左右滑动切页。";
+          } else {
+            viewerHint.textContent = "图片模式：点图片进入全屏查看。";
+          }
+          return;
+        }
+        if (!viewerTools.hidden && hasPdf && hasImages) {
+          viewerHint.textContent = "当前是 PDF 模式；若手机空白或触发下载，请切到图片。";
+        } else if (!viewerTools.hidden && hasImages && !hasPdf) {
+          viewerHint.textContent = "当前仅支持图片模式。";
+        } else if (!viewerTools.hidden && hasPdf && !hasImages) {
+          viewerHint.textContent = "当前仅支持 PDF 模式。";
+        } else {
+          viewerHint.textContent = "";
+        }
+      }
+
+      function applyViewerMode(nextMode) {
+        const hasPdf = !!state.sectionPdfUrl;
+        const hasImages = Array.isArray(state.pageImageUrls) && state.pageImageUrls.length > 0;
+        let mode = String(nextMode || "text");
+
+        if (mode === "pdf" && !hasPdf) {
+          mode = hasImages ? "image" : "text";
+        }
+        if (mode === "image" && !hasImages) {
+          mode = hasPdf ? "pdf" : "text";
+        }
+        if (!["text", "pdf", "image"].includes(mode)) {
+          mode = hasPdf ? "pdf" : hasImages ? "image" : "text";
+        }
+
+        state.viewerMode = mode;
+        pdfFrame.hidden = mode !== "pdf";
+        imageViewer.hidden = mode !== "image";
+        textEl.hidden = mode !== "text";
+
+        if (mode === "pdf") {
+          if (pdfFrame.src !== state.sectionPdfUrl) {
+            pdfFrame.src = state.sectionPdfUrl;
+          }
+        } else if (pdfFrame.src) {
+          pdfFrame.removeAttribute("src");
+        }
+
+        if (mode === "image") {
+          renderImageViewer();
+        } else {
+          closeImageLightbox();
+        }
+        renderViewerModeState();
+      }
+
+      function rememberBumpId(bumpId) {
+        const id = String(bumpId || "").trim();
+        if (!id) {
+          return;
+        }
+        appliedBumpIds.add(id);
+        if (appliedBumpIds.size <= 480) {
+          return;
+        }
+        const first = appliedBumpIds.values().next();
+        if (!first.done) {
+          appliedBumpIds.delete(first.value);
+        }
+      }
+
+      function renderReaderStats() {
+        likeCountEl.textContent = String(normalizeCount(state.stats.like_count));
+        commentCountEl.textContent = String(normalizeCount(state.stats.comment_count));
+        completeCountEl.textContent = String(normalizeCount(state.stats.complete_count));
+      }
+
+      function setReaderStatsFromDetail(detail) {
+        const src = detail && typeof detail === "object" ? detail : {};
+        const summary = src.interaction_summary && typeof src.interaction_summary === "object"
+          ? src.interaction_summary
+          : {};
+        state.stats.like_count = normalizeCount(src.like_count ?? summary.like_count ?? 0);
+        state.stats.comment_count = normalizeCount(src.comment_count ?? summary.comment_count ?? 0);
+        state.stats.complete_count = normalizeCount(src.complete_count ?? summary.complete_count ?? 0);
+        renderReaderStats();
+      }
+
+      function bumpReaderStat(fieldName, delta = 1) {
+        const field = String(fieldName || "");
+        if (!["like_count", "comment_count", "complete_count"].includes(field)) {
+          return false;
+        }
+        const step = Number(delta || 0);
+        if (!Number.isFinite(step) || step === 0) {
+          return false;
+        }
+        const curr = normalizeCount(state.stats[field]);
+        const next = Math.max(0, curr + Math.trunc(step));
+        if (next === curr) {
+          return false;
+        }
+        state.stats[field] = next;
+        renderReaderStats();
+        return true;
+      }
+
+      function formatTime(isoText) {
+        const raw = String(isoText || "").trim();
+        if (!raw) {
+          return "";
+        }
+        const dt = new Date(raw);
+        if (Number.isNaN(dt.getTime())) {
+          return raw;
+        }
+        return dt.toLocaleString("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function renderLikeState() {
+        const active = !!state.likedByMe;
+        likeBtn.setAttribute("aria-pressed", active ? "true" : "false");
+        likeBtn.classList.toggle("active", active);
+        likeIcon.textContent = active ? "♥" : "♡";
+        likeText.textContent = active ? "已点赞" : "点赞";
+      }
+
+      function renderArchiveState() {
+        if (!(archiveFlagBtn instanceof HTMLButtonElement)) {
+          return;
+        }
+        const active = !!state.archivedByMe;
+        archiveFlagBtn.classList.toggle("active-filled", active);
+        archiveFlagBtn.setAttribute("aria-pressed", active ? "true" : "false");
+        archiveFlagBtn.setAttribute("title", active ? "已归档，可取消归档恢复 Feed 显示" : "归档并从 Feed 隐藏");
+        archiveFlagBtn.setAttribute("aria-label", active ? "已归档，可取消归档恢复 Feed 显示" : "归档并从 Feed 隐藏");
+      }
+
+      function renderCompleteMarks() {
+        const total = normalizeCount(state.viewerCompleteCount);
+        const slots = 6;
+        const filled = Math.min(total, slots);
+        const marks = [];
+        for (let i = 0; i < slots; i += 1) {
+          marks.push(`<span class="complete-mark ${i < filled ? "on" : "off"}">✓</span>`);
+        }
+        if (total > slots) {
+          marks.push(`<span class="complete-extra">+${total - slots}</span>`);
+        }
+        completeMarksEl.innerHTML = marks.join("");
+      }
+
+      function setViewerStateFromDetail(detail) {
+        const src = detail && typeof detail === "object" ? detail : {};
+        const viewerSummary = src.viewer_interaction_summary && typeof src.viewer_interaction_summary === "object"
+          ? src.viewer_interaction_summary
+          : {};
+        state.likedByMe = !!(src.viewer_like_active ?? viewerSummary.like_active ?? false);
+        state.archivedByMe = !!(src.viewer_archive_active ?? viewerSummary.archive_active ?? false);
+        state.viewerCompleteCount = normalizeCount(src.viewer_complete_count ?? viewerSummary.complete_count ?? 0);
+        renderLikeState();
+        renderArchiveState();
+        updateArchiveBubbleLayout();
+        renderCompleteMarks();
+      }
+
+      function escapeAndFormatCommentText(text) {
+        return App.escapeHtml(text || "").replaceAll("\n", "<br>");
+      }
+
+      function renderComments() {
+        const items = Array.isArray(state.comments) ? state.comments : [];
+        if (state.loadingComments) {
+          commentMeta.textContent = "评论加载中...";
+        } else {
+          commentMeta.textContent = items.length ? `共 ${items.length} 条` : "还没有评论";
+        }
+        if (!items.length) {
+          commentList.innerHTML = '<p class="comment-empty">还没有评论，来写第一条吧。</p>';
+          return;
+        }
+        commentList.innerHTML = items.map((item) => {
+          const label = App.escapeHtml(item.user_label || "用户");
+          const when = App.escapeHtml(formatTime(item.event_ts));
+          const textHtml = escapeAndFormatCommentText(item.text || "");
+          const mineClass = item.is_me ? " mine" : "";
+          return `
+            <article class="comment-item${mineClass}">
+              <div class="comment-item-head">
+                <strong>${label}</strong>
+                <span>${when}</span>
+              </div>
+              <p class="comment-item-body">${textHtml}</p>
+            </article>
+          `;
+        }).join("");
+      }
+
+      async function loadComments() {
+        const ids = currentEventIds();
+        if (!ids.chunkId) {
+          state.comments = [];
+          renderComments();
+          return;
+        }
+        const reqSeq = state.commentsReqSeq + 1;
+        state.commentsReqSeq = reqSeq;
+        state.loadingComments = true;
+        renderComments();
+
+        try {
+          const params = new URLSearchParams();
+          params.set("chunk_id", ids.chunkId);
+          if (ids.bookId) {
+            params.set("book_id", ids.bookId);
+          }
+          if (ids.userId) {
+            params.set("user_id", ids.userId);
+          }
+          params.set("limit", "50");
+          const payload = await App.apiFetch(`/v1/chunk_comments?${params.toString()}`, { token: state.token });
+          if (reqSeq !== state.commentsReqSeq) {
+            return;
+          }
+          state.comments = Array.isArray(payload.items) ? payload.items : [];
+          state.loadingComments = false;
+          renderComments();
+        } catch (err) {
+          if (reqSeq !== state.commentsReqSeq) {
+            return;
+          }
+          state.loadingComments = false;
+          renderComments();
+        }
+      }
+
+      function prependLocalComment(text) {
+        const clean = String(text || "").trim();
+        if (!clean) {
+          return;
+        }
+        const local = {
+          comment_id: `local_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+          user_id: normalizeUserId(),
+          user_label: "我",
+          is_me: true,
+          text: clean,
+          event_ts: new Date().toISOString(),
+        };
+        const oldItems = Array.isArray(state.comments) ? state.comments : [];
+        state.comments = [local].concat(oldItems).slice(0, 80);
+        renderComments();
       }
 
       function updateUrl() {
@@ -108,13 +1282,27 @@
         if (evt) {
           evt.preventDefault();
         }
-        const ref = String(document.referrer || "");
-        const sameOrigin = ref.startsWith(window.location.origin);
-        if (window.history.length > 1 && sameOrigin) {
+        // Always jump directly to feed to avoid history edge-cases
+        // (e.g. requiring multiple clicks after viewer-mode switches).
+        window.location.href = "/app";
+      }
+
+      function backToPreviousPage(defaultHref = "/app") {
+        const currentHref = window.location.href;
+        if (window.history.length > 1) {
           window.history.back();
+          window.setTimeout(() => {
+            if (window.location.href === currentHref) {
+              window.location.href = defaultHref;
+            }
+          }, 180);
           return;
         }
-        window.location.href = "/app";
+        window.location.href = defaultHref;
+      }
+
+      function scrollReaderToTop() {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
       }
 
       function buildBookUrl() {
@@ -134,6 +1322,9 @@
         const url = new URL(src, window.location.origin);
         if (!url.searchParams.get("token")) {
           url.searchParams.set("token", state.token);
+        }
+        if (!url.searchParams.get("device_id")) {
+          url.searchParams.set("device_id", App.getDeviceId());
         }
         if (!url.searchParams.get("compact")) {
           url.searchParams.set("compact", "1");
@@ -172,6 +1363,65 @@
           state.chunkId = chunkId;
         }
         return { userId, bookId, chunkId };
+      }
+
+      function publishInteractionDelta(fieldName, delta = 1) {
+        const field = String(fieldName || "");
+        const step = Number(delta || 0);
+        if (!["like_count", "comment_count", "complete_count"].includes(field)) {
+          return;
+        }
+        if (!Number.isFinite(step) || step === 0) {
+          return;
+        }
+        const ids = currentEventIds();
+        if (!ids.bookId || !ids.chunkId) {
+          return;
+        }
+        const published = App.publishInteractionDelta({
+          source: "reader",
+          bookId: ids.bookId,
+          chunkId: ids.chunkId,
+          deltas: { [field]: Math.trunc(step) },
+        });
+        if (published && published.id) {
+          rememberBumpId(published.id);
+        }
+      }
+
+      function applyReaderDelta(event) {
+        const bump = event && typeof event === "object" ? event : {};
+        const source = String(bump.source || "");
+        const bumpId = String(bump.id || "").trim();
+        if (bumpId && appliedBumpIds.has(bumpId)) {
+          return;
+        }
+        if (bumpId) {
+          rememberBumpId(bumpId);
+        }
+        if (String(bump.bookId || "") !== String(state.bookId || "")) {
+          return;
+        }
+        if (String(bump.chunkId || "") !== String(state.chunkId || "")) {
+          return;
+        }
+        const deltas = bump.deltas && typeof bump.deltas === "object" ? bump.deltas : {};
+        ["like_count", "comment_count", "complete_count"].forEach((field) => {
+          const delta = Number(deltas[field] || 0);
+          if (!Number.isFinite(delta) || delta === 0) {
+            return;
+          }
+          const step = Math.trunc(delta);
+          bumpReaderStat(field, step);
+          if (field === "complete_count" && source === "reader" && step > 0) {
+            state.viewerCompleteCount = normalizeCount(state.viewerCompleteCount) + step;
+            renderCompleteMarks();
+          }
+          if (field === "like_count" && source === "reader" && Math.abs(step) === 1) {
+            state.likedByMe = step > 0;
+            renderLikeState();
+          }
+        });
       }
 
       async function sendEvent(eventType, payload = {}, position = 1, options = {}) {
@@ -225,7 +1475,8 @@
               continue;
             }
             const curr = Math.max(0, Number(item[fieldName] || 0) || 0);
-            item[fieldName] = curr + Math.max(0, Number(delta || 0) || 0);
+            const next = Math.max(0, curr + (Number(delta || 0) || 0));
+            item[fieldName] = next;
             touched += 1;
             break;
           }
@@ -239,18 +1490,184 @@
         }
       }
 
+      function removeCurrentChunkFromFeedSnapshot() {
+        try {
+          const ids = currentEventIds();
+          const raw = window.sessionStorage.getItem(FEED_STATE_KEY);
+          if (!raw) {
+            return 0;
+          }
+          const snapshot = JSON.parse(raw);
+          if (!snapshot || typeof snapshot !== "object" || !Array.isArray(snapshot.items)) {
+            return 0;
+          }
+          const prev = snapshot.items.length;
+          snapshot.items = snapshot.items.filter((item) => {
+            if (String(item?.book_id || "") !== String(ids.bookId || "")) {
+              return true;
+            }
+            if (String(item?.chunk_id || "") !== String(ids.chunkId || "")) {
+              return true;
+            }
+            return false;
+          });
+          const removed = Math.max(0, prev - snapshot.items.length);
+          if (!removed) {
+            return 0;
+          }
+          snapshot.savedAt = Date.now();
+          window.sessionStorage.setItem(FEED_STATE_KEY, JSON.stringify(snapshot));
+          return removed;
+        } catch (err) {
+          void err;
+          return 0;
+        }
+      }
+
+      function clearFeedSnapshotCache() {
+        try {
+          window.sessionStorage.removeItem(FEED_STATE_KEY);
+        } catch (err) {
+          void err;
+        }
+      }
+
+      function getArchiveReasonValue() {
+        if (!(archiveBubble instanceof HTMLElement)) {
+          return "";
+        }
+        const checked = archiveBubble.querySelector("input[name='archiveReason']:checked");
+        return checked instanceof HTMLInputElement ? String(checked.value || "").trim() : "";
+      }
+
+      function archiveReasonLabel(reason) {
+        if (reason === "non_substantive") {
+          return "非实质性内容";
+        }
+        if (reason === "fragmented") {
+          return "内容破碎";
+        }
+        return "待输入框";
+      }
+
+      function updateArchiveBubbleLayout() {
+        const archived = !!state.archivedByMe;
+        if (archiveBubbleTitle instanceof HTMLElement) {
+          archiveBubbleTitle.textContent = archived ? "已归档（Feed 中隐藏）" : "归档并从 Feed 隐藏";
+        }
+        if (archiveReasonForm instanceof HTMLElement) {
+          archiveReasonForm.hidden = archived;
+        }
+        if (archiveArchivedHint instanceof HTMLElement) {
+          archiveArchivedHint.hidden = !archived;
+        }
+        if (archiveCancelBtn instanceof HTMLButtonElement) {
+          archiveCancelBtn.textContent = archived ? "取消归档" : "取消";
+        }
+        if (archiveSubmitBtn instanceof HTMLButtonElement) {
+          archiveSubmitBtn.textContent = archived ? "关闭" : "确定";
+        }
+      }
+
+      function syncArchiveReasonInputState() {
+        if (state.archivedByMe) {
+          if (archiveReasonInput instanceof HTMLTextAreaElement) {
+            archiveReasonInput.disabled = true;
+          }
+          return;
+        }
+        const reason = getArchiveReasonValue();
+        const custom = reason === "custom";
+        if (archiveReasonInput instanceof HTMLTextAreaElement) {
+          archiveReasonInput.disabled = !custom;
+          if (!custom) {
+            archiveReasonInput.value = "";
+          }
+        }
+      }
+
+      function resetArchiveReasonForm() {
+        if (!(archiveBubble instanceof HTMLElement)) {
+          return;
+        }
+        const inputs = archiveBubble.querySelectorAll("input[name='archiveReason']");
+        inputs.forEach((node) => {
+          if (node instanceof HTMLInputElement) {
+            node.checked = false;
+          }
+        });
+        if (archiveReasonInput instanceof HTMLTextAreaElement) {
+          archiveReasonInput.value = "";
+        }
+        syncArchiveReasonInputState();
+      }
+
+      function setArchiveButtonsDisabled(disabled) {
+        if (archiveCancelBtn instanceof HTMLButtonElement) {
+          archiveCancelBtn.disabled = !!disabled;
+        }
+        if (archiveSubmitBtn instanceof HTMLButtonElement) {
+          archiveSubmitBtn.disabled = !!disabled;
+        }
+      }
+
+      function closeArchiveBubble() {
+        if (archiveBubble instanceof HTMLElement) {
+          archiveBubble.hidden = true;
+        }
+        if (archiveFlagBtn instanceof HTMLButtonElement) {
+          archiveFlagBtn.classList.remove("active");
+          archiveFlagBtn.setAttribute("aria-expanded", "false");
+        }
+      }
+
+      function openArchiveBubble() {
+        if (!(archiveBubble instanceof HTMLElement) || !(archiveFlagBtn instanceof HTMLButtonElement)) {
+          return;
+        }
+        updateArchiveBubbleLayout();
+        if (!state.archivedByMe) {
+          resetArchiveReasonForm();
+        }
+        archiveBubble.hidden = false;
+        archiveFlagBtn.classList.add("active");
+        archiveFlagBtn.setAttribute("aria-expanded", "true");
+      }
+
+      async function submitArchiveEvent({ archiveFeed, reason, reasonLabel, note }) {
+        const payload = {
+          archive_feed: !!archiveFeed,
+          archive_reason: String(reason || "").trim(),
+          archive_reason_label: String(reasonLabel || "").trim(),
+          archive_note: String(note || "").trim(),
+          action: "archive_from_feed",
+        };
+        const result = await sendEvent("skip", payload, 0.08);
+        if (result?.status === "rejected") {
+          throw new Error("归档事件被拒绝");
+        }
+        return result;
+      }
+
       async function loadDetailAndContext() {
         if (!state.chunkId) {
           setNotice("缺少 chunk_id。请从 Feed 卡片进入。", true);
           return;
         }
 
+        closeArchiveBubble();
+        state.comments = [];
+        state.loadingComments = true;
+        renderComments();
         setNotice("加载中...", false);
         try {
           const detailParams = new URLSearchParams();
           detailParams.set("chunk_id", state.chunkId);
           if (state.bookId) {
             detailParams.set("book_id", state.bookId);
+          }
+          if (state.userId) {
+            detailParams.set("user_id", state.userId);
           }
           detailParams.set("compact", "1");
 
@@ -276,22 +1693,36 @@
           ].join("  ·  ");
 
           const contentType = String(detail.content_type || "text");
+          setReaderStatsFromDetail(detail);
+          setViewerStateFromDetail(detail);
           if (contentType === "pdf_section" && detail.section_pdf_url) {
-            pdfFrame.hidden = false;
-            textEl.hidden = true;
-            pdfFrame.src = buildPdfUrl(detail.section_pdf_url);
+            state.sectionPdfUrl = buildPdfUrl(detail.section_pdf_url);
+            state.pageImageUrls = buildSectionImageItems(detail);
+            state.pageImageCacheKey = "";
+            state.sliderIndex = 0;
+            closeImageLightbox();
+            const hasImages = state.pageImageUrls.length > 0;
+            const preferred = state.preferredViewerMode;
+            const nextMode = preferred === "image" && hasImages ? "image" : "pdf";
+            applyViewerMode(nextMode);
           } else {
-            pdfFrame.hidden = true;
-            textEl.hidden = false;
+            state.sectionPdfUrl = "";
+            state.pageImageUrls = [];
+            state.pageImageCacheKey = "";
+            state.sliderIndex = 0;
+            closeImageLightbox();
             textEl.textContent = String(detail.text_content || detail.teaser_text || "(无正文)");
+            applyViewerMode("text");
           }
 
           prevBtn.disabled = !state.context?.prev_chunk_id;
           nextBtn.disabled = !state.context?.next_chunk_id;
           bookBtn.href = buildBookUrl();
+          renderComments();
 
           readerCard.hidden = false;
           setNotice("加载完成。", false);
+          void loadComments();
 
           if (!state.enterSent) {
             state.enterSent = true;
@@ -313,6 +1744,7 @@
           return;
         }
         const fromChunkId = state.chunkId;
+        scrollReaderToTop();
         state.chunkId = targetChunkId;
         state.enterSent = false;
         state.enterAt = Date.now();
@@ -329,6 +1761,7 @@
           }
         }
         await loadDetailAndContext();
+        scrollReaderToTop();
       }
 
       saveBtn.addEventListener("click", () => {
@@ -336,10 +1769,19 @@
         state.token = cfg.token;
         state.userId = cfg.userId || App.getStoredUserId();
         userInput.value = state.userId || "";
+        showToast("配置已保存。", "success", 1200);
         updateUrl();
         loadDetailAndContext();
       });
       backFeedLink.addEventListener("click", backToFeed);
+      if (logoutBtn instanceof HTMLButtonElement) {
+        logoutBtn.addEventListener("click", async () => {
+          if (typeof App.authLogout === "function") {
+            await App.authLogout();
+          }
+          window.location.href = "/app/login.html";
+        });
+      }
 
       prevBtn.addEventListener("click", () => {
         void jumpTo(state.context?.prev_chunk_id || "", true);
@@ -347,6 +1789,370 @@
 
       nextBtn.addEventListener("click", () => {
         void jumpTo(state.context?.next_chunk_id || "", false);
+      });
+
+      viewerModePdfBtn.addEventListener("click", () => {
+        state.preferredViewerMode = "pdf";
+        applyViewerMode("pdf");
+      });
+
+      viewerModeImageBtn.addEventListener("click", () => {
+        state.preferredViewerMode = "image";
+        applyViewerMode("image");
+      });
+
+      imageBrowseStackBtn.addEventListener("click", () => {
+        setImageBrowseMode("stack");
+      });
+
+      imageBrowseSliderBtn.addEventListener("click", () => {
+        setImageBrowseMode("slider");
+      });
+
+      imageViewer.addEventListener("click", (evt) => {
+        const target = evt.target;
+        if (!(target instanceof Element)) {
+          return;
+        }
+        const navBtn = target.closest("[data-slider-nav]");
+        if (navBtn instanceof HTMLButtonElement) {
+          const dir = String(navBtn.getAttribute("data-slider-nav") || "");
+          scrollSliderToIndex(state.sliderIndex + (dir === "prev" ? -1 : 1), true);
+          return;
+        }
+        if (!supportsPointerEvents) {
+          const imgEl = target.closest("img[data-image-index]");
+          if (imgEl instanceof HTMLImageElement) {
+            const idx = Number(imgEl.getAttribute("data-image-index") || 0);
+            openImageLightbox(idx);
+          }
+        }
+      });
+
+      if (supportsPointerEvents) {
+        imageViewer.addEventListener("pointerdown", (evt) => {
+          const target = evt.target;
+          if (!(target instanceof Element)) {
+            imageTapPointer = null;
+            return;
+          }
+          const imgEl = target.closest("img[data-image-index]");
+          if (!(imgEl instanceof HTMLImageElement)) {
+            imageTapPointer = null;
+            return;
+          }
+          if (evt.pointerType === "mouse" && evt.button !== 0) {
+            imageTapPointer = null;
+            return;
+          }
+          imageTapPointer = {
+            pointerId: evt.pointerId,
+            x: evt.clientX,
+            y: evt.clientY,
+            index: Number(imgEl.getAttribute("data-image-index") || 0),
+            at: Date.now(),
+          };
+        });
+
+        imageViewer.addEventListener("pointerup", (evt) => {
+          if (!imageTapPointer || imageTapPointer.pointerId !== evt.pointerId) {
+            return;
+          }
+          const dx = evt.clientX - imageTapPointer.x;
+          const dy = evt.clientY - imageTapPointer.y;
+          const dt = Date.now() - imageTapPointer.at;
+          const isTap = Math.abs(dx) <= 10 && Math.abs(dy) <= 10 && dt <= 700;
+          const index = imageTapPointer.index;
+          imageTapPointer = null;
+          if (!isTap) {
+            return;
+          }
+          openImageLightbox(index);
+        });
+
+        imageViewer.addEventListener("pointercancel", () => {
+          imageTapPointer = null;
+        });
+      }
+
+      imageViewer.addEventListener("keydown", (evt) => {
+        if (!(evt instanceof KeyboardEvent)) {
+          return;
+        }
+        const target = evt.target;
+        if (!(target instanceof HTMLElement) || !target.classList.contains("reader-slider-track")) {
+          return;
+        }
+        if (evt.key === "ArrowRight") {
+          evt.preventDefault();
+          scrollSliderToIndex(state.sliderIndex + 1, true);
+        } else if (evt.key === "ArrowLeft") {
+          evt.preventDefault();
+          scrollSliderToIndex(state.sliderIndex - 1, true);
+        }
+      });
+
+      imageLightboxBackdrop.addEventListener("click", () => {
+        closeImageLightbox();
+      });
+      if (imageZoomOutBtn instanceof HTMLButtonElement) {
+        imageZoomOutBtn.addEventListener("click", () => {
+          changeLightboxScale(-0.2);
+        });
+      }
+      if (imageZoomInBtn instanceof HTMLButtonElement) {
+        imageZoomInBtn.addEventListener("click", () => {
+          changeLightboxScale(0.2);
+        });
+      }
+      if (imageZoomLabel instanceof HTMLElement) {
+        imageZoomLabel.addEventListener("click", () => {
+          setLightboxScale(1);
+        });
+      }
+      imageLightboxViewport.addEventListener("scroll", () => {
+        if (!state.lightboxOpen) {
+          return;
+        }
+        lightboxScrollAt = Date.now();
+        if (lightboxScrollRaf) {
+          return;
+        }
+        lightboxScrollRaf = window.requestAnimationFrame(() => {
+          lightboxScrollRaf = 0;
+          updateLightboxIndexFromScroll();
+        });
+      }, { passive: true });
+      imageLightboxViewport.addEventListener("wheel", (evt) => {
+        if (!state.lightboxOpen) {
+          return;
+        }
+        if (!isCoarsePointer()) {
+          evt.preventDefault();
+          changeLightboxScale(evt.deltaY < 0 ? 0.12 : -0.12, evt.clientX, evt.clientY);
+          lightboxScrollAt = Date.now();
+          return;
+        }
+        if (Math.abs(evt.deltaY) <= Math.abs(evt.deltaX) || Math.abs(evt.deltaY) < 18) {
+          return;
+        }
+        evt.preventDefault();
+        imageLightboxViewport.scrollLeft += evt.deltaY;
+      }, { passive: false });
+      if (supportsPointerEvents) {
+        imageLightboxViewport.addEventListener("pointermove", (evt) => {
+          if (!state.lightboxOpen) {
+            return;
+          }
+          if (evt.pointerType === "touch" && lightboxTouchPointerIds.has(evt.pointerId)) {
+            lightboxTouchPoints.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+            if (lightboxTouchPoints.size > 1) {
+              const pinch = getLightboxPinchMetrics();
+              if (pinch && pinch.distance > 0) {
+                if (!lightboxPinchState || lightboxPinchState.distance <= 0) {
+                  lightboxPinchState = {
+                    distance: pinch.distance,
+                    scale: state.lightboxScale,
+                  };
+                } else {
+                  const nextScale = lightboxPinchState.scale * (pinch.distance / lightboxPinchState.distance);
+                  setLightboxScale(nextScale, pinch.centerX, pinch.centerY);
+                }
+                lightboxScrollAt = Date.now();
+                evt.preventDefault();
+                return;
+              }
+            } else {
+              lightboxPinchState = null;
+            }
+          }
+          if (lightboxDragState && lightboxDragState.pointerId === evt.pointerId) {
+            const dx = evt.clientX - lightboxDragState.startX;
+            const dy = evt.clientY - lightboxDragState.startY;
+            const dragThreshold = evt.pointerType === "touch" ? 10 : 3;
+            if (Math.abs(dx) > dragThreshold || Math.abs(dy) > dragThreshold) {
+              lightboxDragState.moved = true;
+            }
+            state.lightboxPanX = lightboxDragState.startPanX + dx;
+            state.lightboxPanY = lightboxDragState.startPanY + dy;
+            applyLightboxTransform();
+            lightboxScrollAt = Date.now();
+            evt.preventDefault();
+          }
+        }, { passive: false });
+        imageLightboxViewport.addEventListener("pointerdown", (evt) => {
+          if (!state.lightboxOpen) {
+            lightboxDragState = null;
+            lightboxCloseTapPointer = null;
+            lightboxTouchPointerIds.clear();
+            lightboxTouchPoints.clear();
+            lightboxHadMultiTouch = false;
+            lightboxPinchState = null;
+            return;
+          }
+          if (evt.pointerType === "touch") {
+            lightboxTouchPointerIds.add(evt.pointerId);
+            lightboxTouchPoints.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+            if (lightboxTouchPointerIds.size > 1) {
+              lightboxHadMultiTouch = true;
+              lightboxCloseTapPointer = null;
+              const pinch = getLightboxPinchMetrics();
+              if (pinch && pinch.distance > 0) {
+                lightboxPinchState = {
+                  distance: pinch.distance,
+                  scale: state.lightboxScale,
+                };
+              }
+              if (lightboxDragState && lightboxDragState.slide instanceof HTMLElement) {
+                lightboxDragState.slide.classList.remove("dragging");
+              }
+              lightboxDragState = null;
+            }
+          }
+          if (evt.pointerType === "mouse" && evt.button !== 0) {
+            lightboxCloseTapPointer = null;
+            return;
+          }
+          if (!lightboxHadMultiTouch) {
+            lightboxCloseTapPointer = {
+              pointerId: evt.pointerId,
+              x: evt.clientX,
+              y: evt.clientY,
+              at: Date.now(),
+            };
+          }
+          if (state.lightboxScale > 1.01 && !(evt.pointerType === "touch" && lightboxTouchPointerIds.size > 1)) {
+            const slideEl = getLightboxSlide();
+            if (slideEl instanceof HTMLElement) {
+              lightboxDragState = {
+                pointerId: evt.pointerId,
+                startX: evt.clientX,
+                startY: evt.clientY,
+                startPanX: state.lightboxPanX,
+                startPanY: state.lightboxPanY,
+                moved: false,
+                slide: slideEl,
+              };
+              slideEl.classList.add("dragging");
+              if (typeof imageLightboxViewport.setPointerCapture === "function") {
+                try {
+                  imageLightboxViewport.setPointerCapture(evt.pointerId);
+                } catch (err) {
+                  void err;
+                }
+              }
+            }
+          }
+        });
+        imageLightboxViewport.addEventListener("pointerup", (evt) => {
+          if (evt.pointerType === "touch") {
+            lightboxTouchPointerIds.delete(evt.pointerId);
+            lightboxTouchPoints.delete(evt.pointerId);
+            if (lightboxTouchPointerIds.size < 2) {
+              lightboxPinchState = null;
+            }
+          }
+          const tap = lightboxCloseTapPointer;
+          const drag = lightboxDragState;
+          if (drag && drag.pointerId === evt.pointerId) {
+            drag.slide.classList.remove("dragging");
+            lightboxDragState = null;
+          }
+          if (!state.lightboxOpen || !tap || tap.pointerId !== evt.pointerId) {
+            if (lightboxCloseTapPointer && lightboxCloseTapPointer.pointerId === evt.pointerId) {
+              lightboxCloseTapPointer = null;
+            }
+            if (lightboxTouchPointerIds.size === 0) {
+              lightboxHadMultiTouch = false;
+              lightboxTouchPoints.clear();
+              lightboxPinchState = null;
+            }
+            return;
+          }
+          const dx = evt.clientX - tap.x;
+          const dy = evt.clientY - tap.y;
+          const dt = Date.now() - tap.at;
+          lightboxCloseTapPointer = null;
+          const isTap = Math.abs(dx) <= 10 && Math.abs(dy) <= 10 && dt <= 500;
+          if (isTap && !(drag && drag.moved)) {
+            closeImageLightbox();
+          }
+          if (lightboxTouchPointerIds.size === 0) {
+            lightboxHadMultiTouch = false;
+            lightboxTouchPoints.clear();
+            lightboxPinchState = null;
+          }
+        });
+        imageLightboxViewport.addEventListener("pointercancel", (evt) => {
+          if (evt.pointerType === "touch") {
+            lightboxTouchPointerIds.delete(evt.pointerId);
+            lightboxTouchPoints.delete(evt.pointerId);
+            if (lightboxTouchPointerIds.size < 2) {
+              lightboxPinchState = null;
+            }
+            if (lightboxTouchPointerIds.size === 0) {
+              lightboxHadMultiTouch = false;
+              lightboxTouchPoints.clear();
+              lightboxPinchState = null;
+            }
+          }
+          if (lightboxDragState && lightboxDragState.pointerId === evt.pointerId) {
+            lightboxDragState.slide.classList.remove("dragging");
+            lightboxDragState = null;
+          }
+          if (lightboxCloseTapPointer && lightboxCloseTapPointer.pointerId === evt.pointerId) {
+            lightboxCloseTapPointer = null;
+          }
+        });
+      } else {
+        imageLightboxViewport.addEventListener("click", () => {
+          if (!state.lightboxOpen) {
+            return;
+          }
+          closeImageLightbox();
+        });
+      }
+      document.addEventListener("keydown", (evt) => {
+        if (!(evt instanceof KeyboardEvent) || !state.lightboxOpen) {
+          return;
+        }
+        if (evt.key === "Escape") {
+          evt.preventDefault();
+          closeImageLightbox();
+        } else if (evt.key === "ArrowRight") {
+          evt.preventDefault();
+          shiftLightbox(1);
+        } else if (evt.key === "ArrowLeft") {
+          evt.preventDefault();
+          shiftLightbox(-1);
+        }
+      });
+      window.addEventListener("resize", () => {
+        if (!state.lightboxOpen) {
+          return;
+        }
+        window.requestAnimationFrame(() => {
+          renderLightboxZoomState();
+          applyLightboxTransform();
+          scrollLightboxToIndex(state.lightboxIndex, false);
+        });
+      });
+
+      openPdfLink.addEventListener("click", (evt) => {
+        if (openPdfLink.classList.contains("disabled")) {
+          evt.preventDefault();
+        }
+      });
+
+      pdfFrame.addEventListener("error", () => {
+        if (state.viewerMode !== "pdf") {
+          return;
+        }
+        if (state.pageImageUrls.length > 0) {
+          state.preferredViewerMode = "image";
+          applyViewerMode("image");
+          setNotice("当前浏览器内嵌 PDF 不稳定，已切换为图片模式。", false);
+        }
       });
 
       completeBtn.addEventListener("click", async () => {
@@ -359,8 +2165,14 @@
           const result = await sendEvent("section_complete", { section_id: sectionId }, 1);
           if (result?.status === "accepted") {
             bumpFeedSnapshotCount("complete_count", 1);
+            bumpReaderStat("complete_count", 1);
+            state.viewerCompleteCount = normalizeCount(state.viewerCompleteCount) + 1;
+            renderCompleteMarks();
+            publishInteractionDelta("complete_count", 1);
           }
-          setNotice("已标记本节完成。", false);
+          const msg = `已标记完成（第 ${state.viewerCompleteCount} 次）。`;
+          setNotice(msg, false);
+          showToast(msg, "success", 1600);
         } catch (err) {
           const msg = err?.payload?.error?.message || err.message || "上报失败";
           setNotice(`提交失败：${msg}`, true);
@@ -371,6 +2183,7 @@
         try {
           await sendEvent("confusion", { confusion_type: "need_previous_context" }, 0.4);
           setNotice("已记录“看不懂”反馈。", false);
+          showToast("已记录“看不懂”反馈。", "success", 1500);
         } catch (err) {
           const msg = err?.payload?.error?.message || err.message || "上报失败";
           setNotice(`提交失败：${msg}`, true);
@@ -378,33 +2191,207 @@
       });
 
       likeBtn.addEventListener("click", async () => {
+        if (state.likeBusy) {
+          return;
+        }
+        state.likeBusy = true;
+        likeBtn.disabled = true;
         try {
-          const result = await sendEvent("like", {}, 1);
+          const nextLiked = !state.likedByMe;
+          const result = await sendEvent(nextLiked ? "like" : "unlike", {}, 1);
           if (result?.status === "accepted") {
-            bumpFeedSnapshotCount("like_count", 1);
+            const delta = nextLiked ? 1 : -1;
+            state.likedByMe = nextLiked;
+            renderLikeState();
+            bumpFeedSnapshotCount("like_count", delta);
+            bumpReaderStat("like_count", delta);
+            publishInteractionDelta("like_count", delta);
           }
-          setNotice("已点赞。", false);
+          const msg = state.likedByMe ? "已点赞。再次点击可取消。" : "已取消点赞。";
+          setNotice(msg, false);
+          showToast(msg, "success", 1400);
         } catch (err) {
           const msg = err?.payload?.error?.message || err.message || "上报失败";
           setNotice(`提交失败：${msg}`, true);
+        } finally {
+          state.likeBusy = false;
+          likeBtn.disabled = false;
         }
       });
 
-      commentBtn.addEventListener("click", async () => {
-        const text = window.prompt("写下你的理解或疑问：", "");
-        if (!text || !String(text).trim()) {
+      commentSubmitBtn.addEventListener("click", async () => {
+        const text = String(commentInput.value || "").trim();
+        if (!text) {
+          setNotice("请输入评论内容。", true);
+          commentInput.focus();
           return;
         }
+        if (state.commentBusy) {
+          return;
+        }
+        state.commentBusy = true;
+        commentSubmitBtn.disabled = true;
         try {
-          const result = await sendEvent("comment", { text: String(text).trim() }, 1);
+          const result = await sendEvent("comment", { text }, 1);
           if (result?.status === "accepted") {
             bumpFeedSnapshotCount("comment_count", 1);
+            bumpReaderStat("comment_count", 1);
+            publishInteractionDelta("comment_count", 1);
+            commentInput.value = "";
+            prependLocalComment(text);
+            void loadComments();
           }
-          setNotice("评论已记录。", false);
+          setNotice("评论已发布。", false);
+          showToast("评论已发布。", "success", 1500);
         } catch (err) {
           const msg = err?.payload?.error?.message || err.message || "上报失败";
           setNotice(`提交失败：${msg}`, true);
+        } finally {
+          state.commentBusy = false;
+          commentSubmitBtn.disabled = false;
         }
+      });
+      commentInput.addEventListener("keydown", (evt) => {
+        if (!(evt instanceof KeyboardEvent)) {
+          return;
+        }
+        if ((evt.ctrlKey || evt.metaKey) && evt.key === "Enter") {
+          evt.preventDefault();
+          commentSubmitBtn.click();
+        }
+      });
+
+      if (archiveFlagBtn instanceof HTMLButtonElement) {
+        archiveFlagBtn.addEventListener("click", () => {
+          if (!(archiveBubble instanceof HTMLElement)) {
+            return;
+          }
+          if (archiveBubble.hidden) {
+            openArchiveBubble();
+          } else {
+            closeArchiveBubble();
+          }
+        });
+      }
+      if (archiveCancelBtn instanceof HTMLButtonElement) {
+        archiveCancelBtn.addEventListener("click", async () => {
+          if (state.archiveBusy) {
+            return;
+          }
+          if (!state.archivedByMe) {
+            closeArchiveBubble();
+            return;
+          }
+          state.archiveBusy = true;
+          setArchiveButtonsDisabled(true);
+          try {
+            await submitArchiveEvent({
+              archiveFeed: false,
+              reason: "restore",
+              reasonLabel: "取消归档",
+              note: "",
+            });
+            state.archivedByMe = false;
+            renderArchiveState();
+            updateArchiveBubbleLayout();
+            clearFeedSnapshotCache();
+            closeArchiveBubble();
+            setFlashToast("已取消归档，章节将重新参与 Feed 展示。", "success", 2400);
+            backToPreviousPage("/app");
+          } catch (err) {
+            const msg = err?.payload?.error?.message || err.message || "取消归档失败";
+            setNotice(`取消归档失败：${msg}`, true);
+          } finally {
+            state.archiveBusy = false;
+            setArchiveButtonsDisabled(false);
+          }
+        });
+      }
+      if (archiveBubble instanceof HTMLElement) {
+        archiveBubble.addEventListener("change", (evt) => {
+          const target = evt.target;
+          if (!(target instanceof HTMLInputElement)) {
+            return;
+          }
+          if (target.name !== "archiveReason") {
+            return;
+          }
+          syncArchiveReasonInputState();
+        });
+      }
+      if (archiveSubmitBtn instanceof HTMLButtonElement) {
+        archiveSubmitBtn.addEventListener("click", async () => {
+          if (state.archiveBusy) {
+            return;
+          }
+          if (state.archivedByMe) {
+            closeArchiveBubble();
+            return;
+          }
+          const reason = getArchiveReasonValue();
+          if (!reason) {
+            setNotice("请先选择归档原因。", true);
+            return;
+          }
+          const note = String(archiveReasonInput?.value || "").trim();
+          if (reason === "custom" && !note) {
+            setNotice("选择“待输入框”时，请填写说明。", true);
+            if (archiveReasonInput instanceof HTMLTextAreaElement) {
+              archiveReasonInput.focus();
+            }
+            return;
+          }
+
+          state.archiveBusy = true;
+          setArchiveButtonsDisabled(true);
+          try {
+            await submitArchiveEvent({
+              archiveFeed: true,
+              reason,
+              reasonLabel: archiveReasonLabel(reason),
+              note,
+            });
+            state.archivedByMe = true;
+            renderArchiveState();
+            updateArchiveBubbleLayout();
+            removeCurrentChunkFromFeedSnapshot();
+            closeArchiveBubble();
+            setFlashToast("已归档，章节已从 Feed 隐藏。", "success", 2400);
+            backToPreviousPage("/app");
+          } catch (err) {
+            const msg = err?.payload?.error?.message || err.message || "归档失败";
+            setNotice(`归档失败：${msg}`, true);
+          } finally {
+            state.archiveBusy = false;
+            setArchiveButtonsDisabled(false);
+          }
+        });
+      }
+      document.addEventListener("pointerdown", (evt) => {
+        if (!(archiveBubble instanceof HTMLElement) || archiveBubble.hidden) {
+          return;
+        }
+        const target = evt.target;
+        if (!(target instanceof Node)) {
+          return;
+        }
+        if (archiveFlagWrap instanceof HTMLElement && archiveFlagWrap.contains(target)) {
+          return;
+        }
+        closeArchiveBubble();
+      });
+      document.addEventListener("keydown", (evt) => {
+        if (!(evt instanceof KeyboardEvent)) {
+          return;
+        }
+        if (evt.key !== "Escape") {
+          return;
+        }
+        if (!(archiveBubble instanceof HTMLElement) || archiveBubble.hidden) {
+          return;
+        }
+        evt.preventDefault();
+        closeArchiveBubble();
       });
 
       function reportImpressionOnLeave() {
@@ -430,6 +2417,7 @@
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${state.token}`,
+            "X-BookFlow-Device-ID": App.getDeviceId(),
           },
           body: JSON.stringify({ events: [event] }),
         }).catch(() => {});
@@ -440,6 +2428,12 @@
         if (document.visibilityState === "hidden") {
           reportImpressionOnLeave();
         }
+      });
+      const unsubscribeInteractionDelta = App.subscribeInteractionDelta((event) => {
+        applyReaderDelta(event);
+      });
+      window.addEventListener("beforeunload", () => {
+        unsubscribeInteractionDelta();
       });
 
       updateUrl();
